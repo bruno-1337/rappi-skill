@@ -96,13 +96,14 @@ test('mapped cart and checkout helpers use exact methods and paths', async () =>
   const client = new RappiClient(headers, {
     baseUrl: 'http://127.0.0.1:12345/',
     fetchImpl: async (url, options) => {
-      calls.push([options.method, `${url.pathname}${url.search}`, options.body]);
+      calls.push([options.method, `${url.pathname}${url.search}`, options.body, options.headers]);
       return response({});
     },
   });
   await client.cartsRaw();
   await client.replaceStoreCart('market', [{ id: 1, products: [] }]);
   await client.recalculate('market');
+  await client.recalculateForOrder('market');
   await client.checkoutDetail('market');
   await client.checkoutSummary('market');
   await client.checkoutComponents('market', ['1']);
@@ -114,6 +115,7 @@ test('mapped cart and checkout helpers use exact methods and paths', async () =>
     ['POST', '/api/ms/shopping-cart/v1/all/get'],
     ['PUT', '/api/ms/shopping-cart/v2/market/store'],
     ['POST', '/api/ms/shopping-cart/v1/market/recalculate'],
+    ['POST', '/api/ms/shopping-cart/v1/market/recalculate'],
     ['GET', '/api/ms/shopping-cart/v1/market/checkout/detail'],
     ['GET', '/api/ms/shopping-cart/v1/market/summary-v2'],
     ['POST', '/api/ms/checkout-component/market'],
@@ -124,6 +126,28 @@ test('mapped cart and checkout helpers use exact methods and paths', async () =>
   ]);
   assert.equal(calls[0][2], '{}');
   assert.equal(calls[2][2], '{}');
+  assert.equal(calls[3][2], '{"store_type":"market"}');
+  assert.equal(calls[10][3].needappsflyerid, 'true');
+  assert.equal(calls[10][3]['af-web-id'], 'null');
+  assert.equal(calls[10][3]['cybs-fp-id'], '');
+});
+
+test('checkout preserves antifraud identifiers observed during authentication', async () => {
+  let requestHeaders;
+  const client = new RappiClient({
+    ...headers,
+    'af-web-id': 'observed-af-id',
+    'cybs-fp-id': 'observed-cybs-id',
+  }, {
+    baseUrl: 'http://127.0.0.1:12345/',
+    fetchImpl: async (_url, options) => {
+      requestHeaders = options.headers;
+      return response({});
+    },
+  });
+  await client.checkout('restaurant', { store_type: 'restaurant' });
+  assert.equal(requestHeaders['af-web-id'], 'observed-af-id');
+  assert.equal(requestHeaders['cybs-fp-id'], 'observed-cybs-id');
 });
 
 test('checkout authentication rejections remain ambiguous without retry', async () => {

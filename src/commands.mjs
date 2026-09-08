@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadSession, deleteSession, sessionStatus } from './session.mjs';
-import { RappiClient, ApiError, SessionExpiredError } from './api.mjs';
+import { RappiClient, ApiError, SessionExpiredError, cleanRemote } from './api.mjs';
 import {
   parseSearchOptions, rankSearch, summarizeCarts, buildCartMutation, selectCartCandidate,
   verifyCartMutation, summarizeOrders, buildCheckoutSnapshot, parsePositiveInteger,
@@ -185,7 +185,7 @@ async function paymentCommand(args) {
   output({ changed: true, payment: { label: selection.payment_method_label } });
 }
 
-async function checkoutData(client, storeType) {
+async function checkoutData(client, storeType, { forOrder = false } = {}) {
   const cartRaw = await client.cartsRaw();
   const cart = summarizeCarts(cartRaw);
   const stores = selectCheckoutStores(cart, storeType);
@@ -193,7 +193,7 @@ async function checkoutData(client, storeType) {
   const storeIds = stores.map(store => store.store_id);
   const address = await client.activeLocation();
   const [recalculation, detail, summary, components, tip, paymentMethods] = await Promise.all([
-    client.recalculate(storeType),
+    forOrder ? client.recalculateForOrder(storeType) : client.recalculate(storeType),
     client.checkoutDetail(storeType),
     client.checkoutSummary(storeType),
     client.checkoutComponents(storeType, storeIds),
@@ -334,6 +334,20 @@ export async function reconcileOrders(client, orderIds, snapshot, {
   };
 }
 
+export function summarizeSubmissionError(error) {
+  const payload = error?.payload && typeof error.payload === 'object' && !Array.isArray(error.payload)
+    ? error.payload
+    : null;
+  const nested = payload?.error && typeof payload.error === 'object' && !Array.isArray(payload.error)
+    ? payload.error
+    : null;
+  return {
+    status: Number.isInteger(error?.status) ? error.status : null,
+    code: cleanRemote(payload?.code ?? nested?.code) || null,
+    message: cleanRemote(payload?.message ?? nested?.message ?? error?.message) || 'Checkout response unavailable.',
+  };
+}
+
 async function orderCommand(args) {
   const { flags, positionals } = parseFlags(args);
   rejectUnknown(flags, ['store-type', 'approval-id']);
@@ -341,15 +355,15 @@ async function orderCommand(args) {
   const storeType = requireFlag(flags, 'store-type');
   const approvalId = requireFlag(flags, 'approval-id');
   const { client } = await clientForSession();
-  const { snapshot, recalculation } = await checkoutData(client, storeType);
+  const { snapshot, recalculation } = await checkoutData(client, storeType, { forOrder: true });
   const beforeOrderIds = summarizeOrders(await client.ordersRaw()).orders.map(order => order.order_id).filter(Boolean);
   await claimApproval(approvalId, snapshot);
   let response;
-  let submissionError = false;
+  let submissionError = null;
   try {
     response = await client.checkout(storeType, recalculation);
-  } catch {
-    submissionError = true;
+  } catch (error) {
+    submissionError = summarizeSubmissionError(error);
   }
   // Once checkout has been invoked, never report an ordinary retryable failure.
   const orderIds = [...collectOrderIds(response)];
@@ -360,10 +374,11 @@ async function orderCommand(args) {
     status: reconciliation.confirmed ? 'confirmed' : reconciliation.placement_observed ? 'created_unverified' : 'ambiguous',
     order_ids: orderIds,
     reconciliation,
-    submission_response_error: submissionError,
+    submission_response_error: submissionError !== null,
+    submission_error: submissionError,
     retried: false,
     message: reconciliation.confirmed ? 'Every order was verified.'
-      : 'Checkout was submitted once. Do not place another order; inspect the listed orders or the official Rappi app.',
+      : 'Checkout was dispatched once. A response error is not a successful order or proof of failure; do not submit it again.',
   });
   if (!reconciliation.confirmed) process.exitCode = 2;
 }

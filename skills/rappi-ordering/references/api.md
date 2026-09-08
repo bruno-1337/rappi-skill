@@ -232,7 +232,7 @@ GET  /api/ms/core-tip/user-segmentation?store_type_group={storeType}&store_type=
 GET  /api/ms/payment-method/resolver/v5?origin=APP&store_type={storeType}&store_id={storeId}
 ```
 
-Recalculate body used for final preparation:
+Preview recalculation uses an empty body:
 
 ```json
 {}
@@ -256,13 +256,16 @@ The payment resolver uses uppercase `origin=APP`; `zone_id` and `zone_name` are 
 POST /api/ms/shopping-cart-proxy/{storeType}/checkout
 ```
 
-The current Brazilian client sends the complete `data` returned by:
+Immediately before submission, the current Brazilian checkout client recalculates with:
 
 ```http
 POST /api/ms/shopping-cart/v1/{storeType}/recalculate
-{}
 ```
 
-Do not reduce this to `{ "return_key": ... }`. Commit uses the current OS-protected session headers and sets `needAppsFlyerId: true`; it carries captured `af-web-id` and `cybs-fp-id` only when the official client emitted them during authentication bootstrap. Never invent antifraud identifiers.
+```json
+{ "store_type": "{storeType}" }
+```
+
+It sends that complete response to the checkout endpoint. Do not reduce it to `{ "return_key": ... }`. The checkout request sets `needAppsFlyerId: true` and always includes `af-web-id` and `cybs-fp-id`; when the browser has no value, the official client sends `"null"` and an empty string respectively. Values observed during authentication take precedence. Never generate fake antifraud identifiers.
 
 Never call this endpoint during discovery, testing, or preview.

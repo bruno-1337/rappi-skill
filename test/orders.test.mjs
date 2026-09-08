@@ -1,10 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectOrderIds, reconcileOrders } from '../src/commands.mjs';
+import { collectOrderIds, reconcileOrders, summarizeSubmissionError } from '../src/commands.mjs';
 
 test('collects checkout order IDs without treating nested product IDs as orders', () => {
   const ids = [...collectOrderIds({ orders: [{ orderId: 11 }, { order_id: '12', products: [{ id: 999 }] }] })];
   assert.deepEqual(ids.sort(), ['11', '12']);
+});
+
+test('submission errors expose only sanitized diagnostic fields', () => {
+  const summary = summarizeSubmissionError({
+    status: 400,
+    payload: {
+      code: 'payment_declined\u0000',
+      message: 'Payment could not be processed.\u001b[31m',
+      payment_method_token: 'secret-token',
+    },
+  });
+  assert.deepEqual(summary, {
+    status: 400,
+    code: 'payment_declined',
+    message: 'Payment could not be processed. [31m',
+  });
+  assert.equal(JSON.stringify(summary).includes('secret-token'), false);
 });
 
 test('reconciliation requires every order, store, and approved amount', async () => {

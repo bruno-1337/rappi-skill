@@ -296,6 +296,14 @@ export class RappiClient {
     return this.request('POST', `/api/ms/shopping-cart/v1/${type}/recalculate`, { body: {}, timeout: CHECKOUT_TIMEOUT_MS });
   }
 
+  recalculateForOrder(storeType) {
+    const type = requireStoreType(storeType);
+    return this.request('POST', `/api/ms/shopping-cart/v1/${type}/recalculate`, {
+      body: { store_type: type },
+      timeout: CHECKOUT_TIMEOUT_MS,
+    });
+  }
+
   checkoutDetail(storeType) {
     return this.request('GET', `/api/ms/shopping-cart/v1/${requireStoreType(storeType)}/checkout/detail`);
   }
@@ -353,7 +361,11 @@ export class RappiClient {
       body: recalculationPayload,
       timeout: CHECKOUT_TIMEOUT_MS,
       ambiguousOnNetwork: true,
-      headers: { needappsflyerid: 'true' },
+      headers: {
+        needappsflyerid: 'true',
+        'af-web-id': this.headers['af-web-id'] ?? 'null',
+        'cybs-fp-id': this.headers['cybs-fp-id'] ?? '',
+      },
     });
   }
 }

@@ -68,13 +68,13 @@ Ask for explicit purchase confirmation in a **new user response after the approv
 
 ### 9. Submit once
 
-Run `order` with that approval ID and identical `cart_type`. The helper recalculates, atomically consumes the one-shot approval, requires exact snapshot and checkout-context equality, and submits the fresh payload once. Material changes (items, quantities, substitutions, address, payment, delivery window, tip, fees, or totals) invalidate the approval. Investigate the difference, present a new review, and obtain a new response; do not bypass a mismatch.
+Run `order` with that approval ID and identical `cart_type`. The helper performs the official final recalculation with `{store_type: cart_type}`, atomically consumes the one-shot approval, requires exact snapshot and checkout-context equality, and submits that fresh payload once with the checkout headers used by the Brazilian client. Material changes (items, quantities, substitutions, address, payment, delivery window, tip, fees, or totals) invalidate the approval. Investigate the difference, present a new review, and obtain a new response; do not bypass a mismatch.
 
 ### 10. Reconcile — no-replay gate
 
-Report success only when every returned order ID reconciles exactly once to an approved store and per-store amount. Report every ID and status; no aggregate success while any store is unresolved. Exit code 2 is unresolved, not proof of a failed purchase. `created_unverified` means IDs are visible but financial verification is incomplete. `ambiguous` may include `candidate_orders`: present them as possible, not proven, matches.
+Report success only when every returned order ID reconciles exactly once to an approved store and per-store amount. Report every ID and status; no aggregate success while any store is unresolved. Exit code 2 is unresolved, not proof of a failed purchase. `created_unverified` means IDs are visible but financial verification is incomplete. `ambiguous` may include `candidate_orders`: present them as possible, not proven, matches. If `submission_response_error` is true, show the sanitized `submission_error`, say only that the request was dispatched once, and never call it a technical success.
 
-Timeout, transport failure, missing IDs, and status-read errors may follow an accepted purchase. Never claim non-placement from an early empty order list, and never repeat `order` to recover a status error. Use `orders list` or the official app for read-only reconciliation, not Windows `timeout` or `hub wait` as a polling substitute. Another checkout is unsafe unless Rappi provides conclusive terminal failure or documented idempotency makes replay safe; a new approval alone does not make it safe.
+Timeout, transport failure, HTTP rejection, malformed response, missing IDs, and status-read errors may follow an accepted purchase. Never claim non-placement from an early empty order list, and never repeat `order` to recover a response or status error. Use `orders list` or the official app for read-only reconciliation, not shell sleeps, Windows `timeout`, or `hub wait` as polling substitutes. Another checkout is unsafe unless Rappi provides conclusive terminal failure or documented idempotency makes replay safe; a new approval alone does not make it safe.
 
 ## Commands
 

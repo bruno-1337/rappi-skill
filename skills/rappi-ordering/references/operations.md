@@ -157,11 +157,11 @@ The CLI binds and consumes a technical approval record; it cannot verify convers
 
 Only after that new explicit confirmation, `order`:
 
-1. recalculates all checkout state;
+1. performs the Brazilian client's final recalculation using `{ "store_type": cart_type }`;
 2. claims and consumes the approval with an atomic filesystem lock before any order request;
 3. requires exact canonical snapshot and all context-hash equality;
    A mismatch reports the changed snapshot fields, not sensitive values. Do not repeatedly request confirmation without investigating the reported differences.
-4. posts the complete fresh recalculation response to `/api/ms/shopping-cart-proxy/{cart_type}/checkout` once;
+4. posts the complete fresh final-recalculation response to `/api/ms/shopping-cart-proxy/{cart_type}/checkout` once, with the official checkout header names and observed-or-official-fallback antifraud values;
 5. collects explicitly identified order IDs and compares status against a pre-submission order baseline;
 6. polls current orders up to eight times, three seconds apart, even after a missing ID or response error;
 7. reports `confirmed` only when every returned ID maps exactly once to an approved store and amount. `created_unverified` means returned IDs are listed but financial verification is incomplete. Without returned IDs, newly observed orders are only candidates, never an inferred confirmation.
@@ -172,9 +172,9 @@ If a material field changes, investigate the reported difference, review the new
 
 ## Ambiguous outcome
 
-A checkout request that loses the response is marked ambiguous and is never retried. Query orders and compare IDs, store IDs, amounts, and time. Cart state or absence from an early order read does not prove non-placement. A new user approval alone does not make replay safe.
+A checkout request that loses or cannot parse its response is marked ambiguous and is never retried. The result exposes only sanitized response status, code, and message; it must not expose payloads, tokens, or payment metadata. Query orders and compare IDs, store IDs, amounts, and time. Cart state or absence from an early order read does not prove non-placement. A new user approval alone does not make replay safe.
 
-The home order feed can omit store IDs and monetary totals; unknown values remain null. Its contents may also lag checkout. A status-read error or exit code 2 after submission is not a declined payment. Read-only follow-up is allowed, but another checkout is not. The CLI performs bounded waiting internally with portable timers, not the Windows `timeout` command.
+The home order feed can omit store IDs and monetary totals; unknown values remain null. Its contents may also lag checkout. A submission response error, status-read error, or exit code 2 is not a successful order and is not proof of a declined payment. Say only that the request was dispatched once, then use read-only reconciliation. Another checkout is unsafe. The CLI performs bounded waiting internally with portable timers; agents must not add shell sleeps or polling loops.
 
 ## Scope boundaries
 

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { dpapi, sessionConfiguration } from './session.mjs';
+import { protectLocalData, sessionConfiguration } from './session.mjs';
 
 const VERSION = 1;
 const TTL_MS = 10 * 60 * 1000;
@@ -87,7 +87,7 @@ function recordPath(config, id) {
   return path.join(config.approvals, `${id}.dpapi`);
 }
 
-export async function prepareApproval(snapshot, config = approvalConfiguration(), transform = dpapi) {
+export async function prepareApproval(snapshot, config = approvalConfiguration(), transform = protectLocalData) {
   const { canonical, hash } = validateSnapshot(snapshot);
   const now = Date.now();
   const id = `${hash.slice(0, 16)}-${randomUUID()}`;
@@ -98,7 +98,7 @@ export async function prepareApproval(snapshot, config = approvalConfiguration()
   return { approval_id: id, short_hash: hash.slice(0, 12), expires_at: new Date(record.expires_at).toISOString() };
 }
 
-export async function claimApproval(id, snapshot, config = approvalConfiguration(), transform = dpapi) {
+export async function claimApproval(id, snapshot, config = approvalConfiguration(), transform = protectLocalData) {
   const source = recordPath(config, id);
   const lock = `${source}.claim`;
   try {

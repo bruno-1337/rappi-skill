@@ -5,9 +5,11 @@
 **Uma skill para agentes pesquisarem, compararem e comprarem no Rappi.**
 
 [![Bun](https://img.shields.io/badge/runtime-Bun-14151A?logo=bun&logoColor=white)](https://bun.sh/)
-[![Node.js](https://img.shields.io/badge/runtime_auxiliar-Node.js_22-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Windows](https://img.shields.io/badge/plataforma-Windows-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/testes-50_passando-2EA44F)](#testes)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Windows](https://img.shields.io/badge/Windows-DPAPI-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![macOS](https://img.shields.io/badge/macOS-Keychain-000000?logo=apple&logoColor=white)](https://support.apple.com/guide/keychain-access/welcome/mac)
+[![Linux](https://img.shields.io/badge/Linux-Secret_Service-FCC624?logo=linux&logoColor=black)](https://www.freedesktop.org/wiki/Specifications/secret-storage-spec/)
+[![Tests](https://img.shields.io/badge/testes-52_passando-2EA44F)](#testes)
 [![Status](https://img.shields.io/badge/status-experimental-F5A623)](#limitações)
 
 Transforme pedidos em linguagem natural em pesquisas, comparações de cesta e compras supervisionadas — mantendo credenciais fora do contexto do agente.
@@ -165,7 +167,7 @@ flowchart LR
     Z --> A
 
     U -->|login no site oficial| B[Chromium isolado]
-    B -->|cabeçalhos mínimos| D[Windows DPAPI]
+    B -->|cabeçalhos mínimos| D[Credenciais do sistema operacional]
     D -->|descriptografia em memória| C
 ```
 
@@ -205,8 +207,9 @@ orders list
 
 ### Requisitos
 
-- Windows x64;
-- [Bun](https://bun.sh/);
+- Windows x64, macOS ou Linux;
+- [Bun](https://bun.sh/) e Node.js 18 ou mais recente;
+- `secret-tool` em Linux, fornecido pelo pacote de ferramentas do libsecret;
 - conta válida no Rappi Brasil.
 
 ```bash
@@ -217,21 +220,21 @@ bun run setup
 bun bin/rappi.mjs auth login
 ```
 
-`auth login` abre o site oficial em um perfil isolado. Depois da autenticação, ele armazena apenas os cabeçalhos necessários usando Windows DPAPI e fecha o navegador. O procedimento detalhado está em [`operations.md`](skills/rappi-ordering/references/operations.md).
+`auth login` abre o site oficial em um perfil isolado. Depois da autenticação, ele armazena apenas os cabeçalhos necessários usando Windows DPAPI, macOS Keychain ou Linux Secret Service e fecha o navegador. O procedimento detalhado está em [`operations.md`](skills/rappi-ordering/references/operations.md).
 
 ## Dados locais e credenciais
 
-O estado sensível fica fora do repositório:
+O estado sensível fica fora do repositório, no diretório nativo de cada plataforma:
 
-```text
-%LOCALAPPDATA%/RappiConnector/
-├── session.dpapi
-├── approvals/
-├── profile/
-└── runtime/
-```
+| Plataforma | Diretório |
+|---|---|
+| Windows | `%LOCALAPPDATA%/RappiConnector` |
+| macOS | `~/Library/Application Support/RappiConnector` |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/rappi-connector` |
 
-Arquivos DPAPI só podem ser descriptografados pelo mesmo usuário do Windows. Sessões, aprovações, perfis de navegador, tokens e payloads de pagamento não devem ser copiados, exibidos ou versionados.
+No Windows, os arquivos são protegidos diretamente com DPAPI. No macOS e Linux, eles usam AES-256-GCM com uma chave aleatória guardada, respectivamente, no Keychain e no Secret Service. O material descriptografado existe somente na memória do processo.
+
+Sessões, aprovações, perfis de navegador, tokens, chaves locais e payloads de pagamento não devem ser copiados, exibidos ou versionados.
 
 ## Testes
 
@@ -239,7 +242,7 @@ Arquivos DPAPI só podem ser descriptografados pelo mesmo usuário do Windows. S
 bun test
 ```
 
-A suíte possui **50 testes determinísticos e anonimizados**, sem acesso a contas reais e sem envio de pedidos. Ela cobre contratos da API, proteção da sessão, consumo atômico de aprovações, validação do carrinho, cálculo do checkout, reconciliação de pedidos e otimização de cestas.
+A suíte possui **52 testes determinísticos e anonimizados**, sem acesso a contas reais e sem envio de pedidos. Ela cobre contratos da API, proteção da sessão, consumo atômico de aprovações, validação do carrinho, cálculo do checkout, reconciliação de pedidos e otimização de cestas.
 
 Fixtures fictícias preservam a estrutura e as invariantes observáveis da API sem publicar dados pessoais ou credenciais.
 
@@ -255,8 +258,8 @@ test/                        testes determinísticos sem credenciais reais
 
 ## Limitações
 
-- O armazenamento de sessão depende de Windows DPAPI.
-- O runtime gerenciado do setup atualmente suporta apenas Windows x64.
+- Linux exige uma sessão compatível com Secret Service e o utilitário `secret-tool`.
+- O runtime Node.js gerenciado automaticamente pelo setup é exclusivo do Windows x64; macOS e Linux usam o Node.js instalado no sistema.
 - A API usada pode mudar sem versionamento público.
 - A busca fornece estimativas; somente o checkout recalculado é autoritativo.
 - Produtos regulados, medicamentos sob prescrição e itens com restrição de idade não devem usar o fluxo genérico.

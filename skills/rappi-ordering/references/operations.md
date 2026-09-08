@@ -12,17 +12,17 @@ auth login
 auth clear
 ```
 
-`auth login` is the complete bootstrap flow. It opens a dedicated persistent Chromium profile on official `https://www.rappi.com.br/`, waits up to ten minutes for the user to finish authentication, requires a successful 2xx response from the official authenticated user endpoint, encrypts only the required request headers with Windows DPAPI, and closes Chromium. It prints `RAPPI_AUTH_READY` only after the protected session is written.
+`auth login` is the complete bootstrap flow. It opens a dedicated persistent Chromium profile on official `https://www.rappi.com.br/`, waits up to ten minutes for the user to finish authentication, requires a successful 2xx response from the official authenticated user endpoint, protects only the required request headers with the OS credential store, and closes Chromium. It prints `RAPPI_AUTH_READY` only after the protected session is written.
 
 State outside the repo:
 
-```text
-%LOCALAPPDATA%/RappiConnector/profile
-%LOCALAPPDATA%/RappiConnector/session.dpapi
-%LOCALAPPDATA%/RappiConnector/approvals/*.dpapi
-```
+| Platform | Directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%/RappiConnector` |
+| macOS | `~/Library/Application Support/RappiConnector` |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/rappi-connector` |
 
-The profile and DPAPI ciphertext are sensitive local state. Never inspect, copy, commit, upload, display, or pass their decrypted contents through arguments. `auth clear` deletes `session.dpapi`. Session expiry and revocation still apply; on HTTP 401/403 run `auth login` again. Do not replay a possibly accepted mutation or checkout after reauthentication.
+Windows encrypts records directly with DPAPI. macOS and Linux encrypt records with AES-256-GCM and keep the random master key in Keychain or Secret Service. Linux requires `secret-tool`. All protected files and browser profiles remain sensitive local state: never inspect, copy, commit, upload, display, or pass their decrypted contents through arguments. `auth clear` deletes the saved session. Session expiry and revocation still apply; on HTTP 401/403 run `auth login` again. Do not replay a possibly accepted mutation or checkout after reauthentication.
 
 
 ## Helper boundary
@@ -143,7 +143,7 @@ checkout cancel <approval-id>
 order --store-type <cart_type> --approval-id <approval-id>
 ```
 
-`checkout approve` recalculates checkout and writes a ten-minute DPAPI-encrypted approval record. The returned short hash is for the user's confirmation prompt; never show the full hash.
+`checkout approve` recalculates checkout and writes a ten-minute OS-protected approval record. The returned short hash is for the user's confirmation prompt; never show the full hash.
 
 After explicit confirmation, `order`:
 

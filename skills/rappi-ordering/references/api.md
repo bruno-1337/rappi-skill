@@ -6,7 +6,7 @@ Observed against the Rappi Brazil web client on 2026-09-07. This is an internal,
 https://services.rappi.com.br
 ```
 
-The local CLI is the only supported caller. It stores the minimum authenticated request headers as Windows DPAPI ciphertext, decrypts them only in command memory, fixes the service origin, and exposes operation-specific commands rather than an arbitrary API proxy.
+The local CLI is the only supported caller. It protects the minimum authenticated request headers with Windows DPAPI or AES-256-GCM backed by macOS Keychain or Linux Secret Service, decrypts them only in command memory, fixes the service origin, and exposes operation-specific commands rather than an arbitrary API proxy.
 
 ## Request headers and session
 
@@ -236,6 +236,6 @@ POST /api/ms/shopping-cart/v1/{storeType}/recalculate
 {}
 ```
 
-Do not reduce this to `{ "return_key": ... }`. Commit uses the current DPAPI-protected session headers and sets `needAppsFlyerId: true`; it carries captured `af-web-id` and `cybs-fp-id` only when the official client emitted them during authentication bootstrap. Never invent antifraud identifiers.
+Do not reduce this to `{ "return_key": ... }`. Commit uses the current OS-protected session headers and sets `needAppsFlyerId: true`; it carries captured `af-web-id` and `cybs-fp-id` only when the official client emitted them during authentication bootstrap. Never invent antifraud identifiers.
 
 Never call this endpoint during discovery, testing, or preview.

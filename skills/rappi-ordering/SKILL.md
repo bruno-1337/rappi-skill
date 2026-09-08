@@ -17,7 +17,7 @@ Run commands as `bun bin/rappi.mjs ...` with the resolved connector repo as `cwd
 
 ## Authentication
 
-Start every task with `auth status`. If the encrypted session is valid, do not open a browser. If it is absent or rejected, run `auth login`; the user completes any official Rappi challenge, then the command captures the minimum API headers, encrypts them with Windows DPAPI, and closes the browser automatically.
+Start every task with `auth status`. If the encrypted session is valid, do not open a browser. If it is absent or rejected, run `auth login`; the user completes any official Rappi challenge, then the command captures the minimum API headers, protects them with the OS credential store, and closes the browser automatically.
 
 Never use a relay, copy browser profiles, inspect cookies/local storage, print credentials, pass secrets in arguments, or implement another token-capture path. `auth clear` deletes the encrypted API session.
 

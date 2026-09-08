@@ -10,8 +10,25 @@ const version = '22.23.2';
 const checksum = '0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
+function run(command, args, stdio = 'ignore') {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio });
+    child.once('error', reject);
+    child.once('exit', code => resolve(code ?? 1));
+  });
+}
+
+async function requireCommand(command, args, message) {
+  try {
+    if (await run(command, args) === 0) return;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  throw new Error(message);
+}
+
 try {
-  let runtime = process.execPath;
+  let runtime;
   if (process.platform === 'win32') {
     if (process.arch !== 'x64') throw new Error('Managed Windows runtime supports x64 only. Use an installed Node runtime on other architectures.');
     const directory = path.join(process.env.LOCALAPPDATA || homedir(), 'RappiConnector', 'runtime');
@@ -28,14 +45,22 @@ try {
       try { await writeFile(temporary, bytes, { flag: 'wx' }); await rename(temporary, runtime); }
       finally { await rm(temporary, { force: true }); }
     }
-  } else if (process.versions.bun) {
-    throw new Error('Run setup with an installed Node runtime on this platform.');
+  } else if (process.platform === 'darwin' || process.platform === 'linux') {
+    runtime = 'node';
+    await requireCommand(runtime, [
+      '-e',
+      "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)",
+    ], 'Node.js 18 or newer is required on macOS and Linux.');
+    if (process.platform === 'darwin') {
+      await requireCommand('/usr/bin/security', ['help'], 'The macOS Keychain security utility is required.');
+    } else {
+      await requireCommand('secret-tool', ['--help'], 'secret-tool is required. Install the libsecret command-line tools for your Linux distribution.');
+    }
+  } else {
+    throw new Error(`Unsupported platform: ${process.platform}.`);
   }
-  const exitCode = await new Promise((resolve, reject) => {
-    const child = spawn(runtime, [path.join(root, 'node_modules/playwright/cli.js'), 'install', 'chromium'], { cwd: root, stdio: 'inherit' });
-    child.once('error', reject);
-    child.once('exit', code => resolve(code ?? 1));
-  });
+
+  const exitCode = await run(runtime, [path.join(root, 'node_modules/playwright/cli.js'), 'install', 'chromium'], 'inherit');
   if (exitCode !== 0) throw new Error(`Chromium install exited ${exitCode}`);
   console.log('Ready. Run bun bin/rappi.mjs auth login, then complete login on the official Rappi page.');
 } catch (error) {

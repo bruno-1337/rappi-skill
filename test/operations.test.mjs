@@ -1,0 +1,298 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  parseSearchOptions, rankSearch, buildCartMutation, verifyCartMutation,
+  summarizeCarts, buildCheckoutSnapshot, selectCartCandidate, selectCheckoutStores,
+  summarizePaymentMethods, buildPaymentSelection, resolveSelectedPayment, summarizeOrders,
+} from '../src/operations.mjs';
+
+const baseProduct = {
+  cart_type: 'market', minimum_order: 15, closed: false, available: true, stock: 5,
+  presentation: '473 mL', real_price: 10, sale_type: 'U', minimum_units: 1,
+  eta: { maximum_minutes: 30 }, age_restriction: false, requires_prescription: false,
+};
+
+const currentPaymentContext = {
+  storeType: 'turbo',
+  cartPayload: [{
+    store_type: 'turbo', stores: [],
+    payment_method: {
+      rappi_credit: { use_rappi_credit: true },
+      rappi_pay: { use_rappi_pay: false, rappi_pay_method_active: false },
+    },
+  }],
+};
+
+test('search excludes unrelated API suggestions and ranks selected mode', () => {
+  const payload = { query: 'Monster Energy', results: [
+    { ...baseProduct, store_id: '1', product_id: 'a', store_name: 'Turbo', name: 'Monster Energético Original', ean: '1', price: 10 },
+    { ...baseProduct, store_id: '2', product_id: 'b', store_name: 'Other', name: 'Red Bull Energy', ean: '2', price: 1, eta: { maximum_minutes: 5 } },
+    { ...baseProduct, store_id: '3', product_id: 'c', store_name: 'Fast', name: 'Monster Mango', ean: '3', price: 11, eta: { maximum_minutes: 10 } },
+  ] };
+  const options = parseSearchOptions(['Monster', 'Energy', '--sort', 'fastest', '--limit', '10']);
+  const ranked = rankSearch(payload, options);
+  assert.deepEqual(ranked.results.map(row => row.product_id), ['c', 'a']);
+});
+
+test('cart mutation preserves existing fields and verifies readback', () => {
+  const before = [{ store_type: 'market', stores: [{ id: 10, opaque: 'keep', products: [{ id: '10_old', units: 2, sale_type: 'U', comment: 'keep' }] }] }];
+  const updated = buildCartMutation(before, { storeType: 'market', storeId: '10', product: { id: '10_new', sale_type: 'U' }, units: 3 });
+  assert.equal(updated[0].opaque, 'keep');
+  assert.equal(updated[0].products[0].comment, 'keep');
+  assert.equal(updated[0].products[1].units, 3);
+  const response = [{ store_type: 'market', stores: updated }];
+  assert.equal(verifyCartMutation(response, { storeId: '10', productId: '10_new', units: 3 }).stores[0].products[1].units, 3);
+  const removed = buildCartMutation(response, { storeType: 'market', storeId: '10', product: { id: '10_new' }, units: 0 });
+  assert.equal(removed[0].products.some(row => row.id === '10_new'), false);
+});
+
+test('cart refuses ambiguous response shapes', () => {
+  assert.throws(() => summarizeCarts({ surprise: [] }), /invalid shape/);
+});
+
+
+test('cart refuses recognized wrappers containing unknown groups', () => {
+  assert.throws(() => buildCartMutation({ data: [{ unexpected: [] }] }, {
+    storeType: 'market', storeId: '10', product: { id: '10_a', sale_type: 'U' }, units: 1,
+  }), /unrecognized group/);
+});
+
+
+test('direct cart groups without cart type fail closed for mutation', () => {
+  assert.throws(() => buildCartMutation([{ id: 10, products: [] }], {
+    storeType: 'market', storeId: '10', product: { id: '10_a', sale_type: 'U' }, units: 1,
+  }), /declare their cart type/);
+});
+test('cart candidate must match the selected cart type', () => {
+  const candidate = { store_id: '10', product_id: '10_a', cart_type: 'turbo', available: true, closed: false };
+  assert.throws(() => selectCartCandidate([candidate], {
+    storeType: 'market', storeId: '10', productId: '10_a',
+  }), /cart type/);
+});
+test('checkout does not infer market from a single retailer cart', () => {
+  const cart = summarizeCarts([{
+    store_type: 'retailer-fixture',
+    stores: [{ id: 10, products: [{ id: '10_a', units: 1 }] }],
+  }]);
+  assert.deepEqual(selectCheckoutStores(cart, 'market'), []);
+  assert.deepEqual(selectCheckoutStores(cart, 'retailer-fixture').map(store => store.store_id), ['10']);
+});
+test('checkout snapshot binds per-store totals and material choices', () => {
+  const snapshot = buildCheckoutSnapshot({
+    storeType: 'market',
+    cartSummary: { stores: [{ store_id: '10', products: [{ product_id: '10_a', units: 1 }] }] },
+    recalculation: { final_total: 17.49 },
+    summary: { item_subtotal: 10.5, discount_total: 0, delivery_total: 6.99, service_fee_total: 0 },
+    detail: { payment_method_id: 'card-fixture', payment_method_label: 'Fixture card' },
+    components: { delivery_window: 'now' },
+    address: { id: '7', label: 'Saved address' },
+  });
+  assert.equal(snapshot.final_total_centavos, 1749);
+  assert.equal(snapshot.stores[0].final_total_centavos, 1749);
+  assert.equal(snapshot.payment_method_id, 'card-fixture');
+  assert.equal(snapshot.address_label, 'Saved address');
+});
+
+test('checkout snapshot parses typed summary rows from current Rappi shape', () => {
+  const snapshot = buildCheckoutSnapshot({
+    storeType: 'turbo',
+    cartSummary: { stores: [{ store_id: '10', products: [{ product_id: '10_a', units: 2, unit_price: 10.29 }] }] },
+    recalculation: { total: 32.57, product_total: 20.58, shipping_total: 6.99, tip: 2 },
+    summary: { summary: [{ sub_value: [
+      { type: 'product_total', raw_value: '20.58' },
+      { type: 'shipping', raw_value: '6.99' },
+      { type: 'service_fee', raw_value: '3.0' },
+      { type: 'tip', raw_value: '2.0' },
+    ] }] },
+    detail: {},
+    components: {},
+    address: { id: '7', label: 'Saved address' },
+  });
+  assert.deepEqual({
+    subtotal: snapshot.item_subtotal_centavos,
+    delivery: snapshot.delivery_total_centavos,
+    service: snapshot.service_fee_total_centavos,
+    tip: snapshot.tip_centavos,
+    mandatory: snapshot.mandatory_charges_total_centavos,
+    total: snapshot.final_total_centavos,
+  }, { subtotal: 2058, delivery: 699, service: 300, tip: 200, mandatory: 0, total: 3257 });
+});
+
+test('saved-card selection uses exact alias and keeps secrets out of summaries', () => {
+  const response = {
+    payment_methods: [{ id: 'cc', description: 'Cartão', available: true }],
+    list_cards: [{
+      alias: 'primary-card', card_brand: 'VISA', card_class: 'CREDIT', last_four_digits: '7890',
+      available: true, blocked: false, default_cc: true,
+      charge_data: {
+        account_payment_id: 'account-fixture', card_class: 'CREDIT', card_type: 'visa',
+        first_six_digits: '123456', last_four_digits: '7890', payment_method: 'cc',
+        payment_method_token: 'token-fixture', store_ids: '10', store_type: 'turbo',
+        online_payment: 'true', payment_method_description: 'masked',
+      },
+    }],
+  };
+  const listed = summarizePaymentMethods(response);
+  assert.equal(JSON.stringify(listed).includes('token-fixture'), false);
+  assert.equal(listed.cards[0].alias, 'primary-card');
+  const selected = buildPaymentSelection(response, 'PRIMARY-CARD', currentPaymentContext);
+  assert.equal(selected.payload.payment_method_type, 'cc');
+  assert.equal(selected.payload.card.card_reference, 'account-fixture');
+  assert.equal(selected.payload.charge_data.payment_method_token, 'token-fixture');
+  assert.equal(selected.selection.payment_method_label, 'primary-card — VISA •••• 7890');
+  assert.deepEqual(selected.payload.rappi_credit, { use_rappi_credit: true });
+  assert.deepEqual(selected.payload.rappi_pay, { use_rappi_pay: false, rappi_pay_method_active: false });
+  const unavailable = structuredClone(response);
+  unavailable.payment_methods[0].available = false;
+  assert.throws(() => buildPaymentSelection(unavailable, 'primary-card', currentPaymentContext), /not currently available/);
+  const unknownBalances = structuredClone(currentPaymentContext);
+  unknownBalances.cartPayload[0].payment_method.rappi_credit.use_rappi_credit = null;
+  assert.throws(() => buildPaymentSelection(response, 'primary-card', unknownBalances), /cannot be verified/);
+  assert.throws(() => buildPaymentSelection(response, 'primary-card', {
+    ...currentPaymentContext, storeType: 'market',
+  }), /matching cart group/);
+  const resolved = resolveSelectedPayment([{
+    store_type: 'turbo',
+    stores: [],
+    payment_method: { payment_method_type: 'cc', card: { card_reference: 'account-fixture' } },
+  }], 'turbo', response);
+  assert.deepEqual(resolved, {
+    payment_method_id: 'cc|account-fixture',
+    payment_method_label: 'primary-card — VISA •••• 7890',
+  });
+});
+
+test('multi-store snapshot refuses missing per-store totals', () => {
+  assert.throws(() => buildCheckoutSnapshot({
+    storeType: 'market',
+    cartSummary: { stores: [
+      { store_id: '10', products: [{ product_id: '10_a', units: 1 }] },
+      { store_id: '20', products: [{ product_id: '20_b', units: 1 }] },
+    ] },
+    recalculation: { final_total: 20 },
+    summary: { item_subtotal: 20 },
+    detail: { payment_method_id: 'card-fixture' },
+    components: {},
+    address: { id: '7', label: 'Saved address' },
+  }), /verifiable totals/);
+});
+
+test('multi-store snapshot requires per-store totals to equal aggregate', () => {
+  assert.throws(() => buildCheckoutSnapshot({
+    storeType: 'market',
+    cartSummary: { stores: [
+      { store_id: '10', products: [{ product_id: '10_a', units: 1 }] },
+      { store_id: '20', products: [{ product_id: '20_b', units: 1 }] },
+    ] },
+    recalculation: {
+      final_total: 20,
+      stores: [
+        { store_id: 10, total: 12, subtotal: 12 },
+        { store_id: 20, total: 9, subtotal: 8 },
+      ],
+    },
+    summary: { item_subtotal: 20 },
+    detail: { payment_method_id: 'card-fixture' },
+    components: {},
+    address: { id: '7', label: 'Saved address' },
+  }), /does not equal/);
+});
+
+test('payment resolution does not borrow a single unrelated retailer selection', () => {
+  const selected = resolveSelectedPayment([{
+    store_type: 'pharmacy-fixture', stores: [],
+    payment_method: { payment_method_type: 'cash' },
+  }], 'market', { payment_methods: [{ id: 'cash', available: true }] });
+  assert.equal(selected.payment_method_id, 'unresolved');
+});
+
+test('cart mutation rejects untyped nested groups and ambiguous or mixed groups', () => {
+  const request = { storeType: 'market', storeId: '10', product: { id: '10_a' }, units: 1 };
+  assert.throws(() => buildCartMutation([{ stores: [{ id: 10, products: [] }] }], request), /declare their cart type/);
+  assert.throws(() => buildCartMutation([
+    { store_type: 'market', stores: [{ id: 10, products: [] }] },
+    { store_type: 'market', stores: [{ id: 20, products: [] }] },
+  ], request), /ambiguous groups/);
+  assert.throws(() => buildCartMutation([
+    { store_type: 'market', stores: [] },
+    { store_type: 'turbo', id: 20, products: [] },
+  ], request), /incompatible group shapes/);
+  assert.throws(() => buildCartMutation([
+    { store_type: 'retailer-fixture', stores: [{ id: 10, products: [] }] },
+  ], request), /refusing to infer/);
+  assert.throws(() => buildCartMutation([], { ...request, units: null }), /units must be an integer/);
+});
+
+test('cart shape validation rejects invalid identities and quantities', () => {
+  assert.throws(() => summarizeCarts([{ store_type: 'market', stores: [
+    { id: null, products: [] },
+  ] }]), /unrecognized group/);
+  assert.throws(() => summarizeCarts([{ store_type: 'market', stores: [
+    { id: 10, products: [{ id: '10_a', units: null }] },
+  ] }]), /unrecognized group/);
+  assert.throws(() => summarizeCarts([{ store_type: 'market', stores: [
+    { id: 10, products: [{ id: '10_a', units: 1 }, { id: '10_a', units: 2 }] },
+  ] }]), /unrecognized group/);
+});
+
+test('cart readback is bound to the requested type rather than only store ID', () => {
+  const payload = [{ store_type: 'turbo', stores: [{ id: 10, products: [{ id: '10_a', units: 1 }] }] }];
+  const request = { storeType: 'market', storeId: '10', productId: '10_a', units: 1 };
+  assert.throws(() => verifyCartMutation(payload, request), /does not match/);
+  assert.equal(verifyCartMutation(payload, { ...request, storeType: 'turbo' }).stores[0].products[0].units, 1);
+  assert.throws(() => verifyCartMutation([{ stores: payload[0].stores }], { ...request, units: 0 }), /declare its cart type/);
+});
+
+test('order cards expose only known identity, type, dates and monetary values', () => {
+  const result = summarizeOrders({ cards: [{
+    order_id: 42, state: 'delivered', store_type_store: 'pharmacy-fixture', store_type_group: 'market',
+    created_at: '2026-09-01', updated_at: '2026-09-02', total: null,
+    texts: [{ text: 'Private delivery details' }],
+  }] });
+  assert.deepEqual(result, { order_count: 1, orders: [{
+    order_id: '42', status: 'delivered', store_id: null, store_name: '',
+    store_type: 'pharmacy-fixture', store_type_group: 'market', total: null,
+    created_at: '2026-09-01', updated_at: '2026-09-02',
+  }] });
+  assert.equal(summarizeOrders([{ id: 1, total: 0 }]).orders[0].total, 0);
+  assert.equal(summarizeOrders([{ id: 1, amount: '12.50' }]).orders[0].total, 12.5);
+  assert.equal(summarizeOrders([{ id: 1, total: false }]).orders[0].total, null);
+});
+
+test('orders reject unknown wrappers and rows rather than reporting no orders', () => {
+  assert.throws(() => summarizeOrders({ unexpected: [] }), /invalid shape/);
+  assert.throws(() => summarizeOrders({ data: { cards: [] } }), /invalid shape/);
+  assert.throws(() => summarizeOrders({ cards: [{}] }), /unrecognized order shape/);
+  assert.throws(() => summarizeOrders({ orders: [null] }), /order must be an object/);
+  assert.deepEqual(summarizeOrders({ cards: [] }), { order_count: 0, orders: [] });
+});
+
+test('checkout rejects null totals and null typed or direct monetary amounts', () => {
+  const input = {
+    storeType: 'market',
+    cartSummary: { stores: [{ store_id: '10', products: [{ product_id: '10_a', units: 1, unit_price: 10 }] }] },
+    recalculation: { final_total: 10 },
+    summary: {}, detail: {}, components: {}, address: { id: '7' },
+  };
+  assert.throws(() => buildCheckoutSnapshot({ ...input, recalculation: { final_total: null } }), /valid monetary amount/);
+  assert.throws(() => buildCheckoutSnapshot({ ...input, summary: { delivery_total: null } }), /valid monetary amount/);
+  assert.throws(() => buildCheckoutSnapshot({ ...input, summary: [
+    { type: 'product_total', raw_value: null },
+  ] }), /invalid monetary amount/);
+  assert.throws(() => buildCheckoutSnapshot({
+    ...input,
+    cartSummary: { stores: [
+      ...input.cartSummary.stores,
+      { store_id: '20', products: [{ product_id: '20_b', units: 1, unit_price: 10 }] },
+    ] },
+    recalculation: { final_total: 20, stores: [
+      { store_id: 10, total: null, subtotal: 10 },
+      { store_id: 20, total: 10, subtotal: 10 },
+    ] },
+  }), /valid monetary amount/);
+  const unknownPrice = summarizeCarts([{ store_type: 'market', stores: [
+    { id: 10, products: [{ id: '10_a', units: 1, price: null }] },
+  ] }]);
+  assert.equal(unknownPrice.stores[0].products[0].unit_price, null);
+  assert.throws(() => buildCheckoutSnapshot({ ...input, cartSummary: unknownPrice }), /subtotal cannot be verified/);
+});

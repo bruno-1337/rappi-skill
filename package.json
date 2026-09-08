@@ -1,0 +1,25 @@
+{
+  "name": "rappi-local-connector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API-first local Rappi CLI with encrypted session bootstrap and supervised checkout",
+  "bin": {
+    "rappi": "bin/rappi.mjs"
+  },
+  "scripts": {
+    "setup": "bun scripts/setup.mjs",
+    "test": "bun test",
+    "cli": "bun bin/rappi.mjs",
+    "auth": "bun bin/rappi.mjs auth",
+    "addresses": "bun bin/rappi.mjs addresses",
+    "cart": "bun bin/rappi.mjs cart",
+    "checkout": "bun bin/rappi.mjs checkout",
+    "order": "bun bin/rappi.mjs order",
+    "orders": "bun bin/rappi.mjs orders",
+    "search": "bun bin/rappi.mjs search"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}

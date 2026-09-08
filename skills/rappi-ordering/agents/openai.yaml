@@ -1,0 +1,6 @@
+interface:
+  display_name: "Rappi Ordering"
+  short_description: "Compare preços e faça pedidos supervisionados"
+  default_prompt: "Use $rappi-ordering para pesquisar produtos no Rappi, comparar o custo entregue e montar um pedido para minha aprovação."
+policy:
+  allow_implicit_invocation: true

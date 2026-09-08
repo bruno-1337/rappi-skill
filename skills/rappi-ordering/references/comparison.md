@@ -23,7 +23,7 @@ Compact search is the default: 10 results, one JSON row per result within struct
 
 ```text
 {
-  store_id, store_name, cart_type, product_id, name, presentation, ean,
+  store_id, store_name, cart_type, product_id, name, description, presentation, ean,
   price, shipping_cost, minimum_order, eta, quantity, stock, minimum_units,
   available, age_restriction, requires_prescription,
   packaging: {
@@ -42,6 +42,7 @@ Compact search is the default: 10 results, one JSON row per result within struct
 ```
 
 - Use `cart_type` for cart commands; do not substitute a retailer's `store_type`.
+- `description` is sanitized menu text for restaurant products when Rappi supplies it; null means unavailable. Never infer ingredients or choose between generic names from titles alone.
 - `packaging` reports textual signals, not verified physical contents. Even matching counts are not proof; `conflicting` is a clarification gate and `unknown` is not evidence of a single unit.
 - `requested` evaluates the requested listing quantity as an **isolated basket**. Existing cart contents never reduce its shortfall. `item_subtotal` and `estimated_delivered` are search estimates, not a final checkout quote. Unknown price, shipping, minimum order, and stock remain null, not zero. Feasibility is false for a proven constraint violation, null when evidence is insufficient, and true only for a supported isolated-basket estimate—not an order guarantee.
 - `minimum_units` constrains product quantity; `requested.minimum_shortfall` is the remaining store-level basket value. With `minimum_units: 1`, one unit may be addable even if the basket cannot check out below the store minimum.

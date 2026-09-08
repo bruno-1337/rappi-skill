@@ -118,7 +118,7 @@ payments list --store-type <cart_type> --store-id <id>
 payments select --store-type <cart_type> --store-id <id> --alias <saved-card-alias>
 ```
 
-`payments list` returns only masked card metadata and safe method labels. `payments select` is a reversible account mutation: run it only after the user clearly names one saved-card alias, require exactly one available match, reject cards requiring CVV or interactive verification, send sensitive resolver metadata only in memory, and require exact server readback. Never expose internal payment IDs, tokens, full card numbers, cardholder data, or resolver payloads.
+`payments list` returns only masked card metadata and safe method labels. `payments select` is a reversible account mutation: run it only after the user clearly names one saved-card alias, require exactly one available match, reject cards requiring CVV or interactive verification, send sensitive resolver metadata only in memory, and require exact server readback. Never expose internal payment IDs, tokens, full card numbers, cardholder data, or resolver payloads. When the current method omits `rappi_credit` or `rappi_pay`, card selection treats the omitted preference as disabled; explicit values are preserved and malformed values still fail closed.
 
 ## Checkout preview
 

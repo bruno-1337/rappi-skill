@@ -178,6 +178,7 @@ export function rankSearch(searchPayload, options) {
       cart_type: row.cart_type,
       product_id: row.product_id,
       name: row.name ?? '',
+      description: row.description || null,
       presentation: row.presentation ?? '',
       ean: row.ean ?? '',
       price: money(price),
@@ -346,8 +347,12 @@ export function buildPaymentSelection(payload, alias, { cartPayload, storeType }
   const groups = extractCartGroups(cartPayload).filter(group => cartType(group) === storeType);
   if (groups.length !== 1) throw new ApiError('Current payment must belong to exactly one matching cart group.');
   const currentPayment = object(groups[0].payment_method, 'current cart payment method');
-  const credit = object(currentPayment.rappi_credit, 'current Rappi credit selection');
-  const pay = object(currentPayment.rappi_pay, 'current Rappi Pay selection');
+  const credit = currentPayment.rappi_credit == null
+    ? { use_rappi_credit: false }
+    : object(currentPayment.rappi_credit, 'current Rappi credit selection');
+  const pay = currentPayment.rappi_pay == null
+    ? { use_rappi_pay: false, rappi_pay_method_active: false }
+    : object(currentPayment.rappi_pay, 'current Rappi Pay selection');
   if (typeof credit.use_rappi_credit !== 'boolean'
     || typeof pay.use_rappi_pay !== 'boolean'
     || typeof pay.rappi_pay_method_active !== 'boolean') {

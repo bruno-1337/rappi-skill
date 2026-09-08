@@ -81,12 +81,20 @@ stores[]
 
 Upstream `price` is the displayed listing-unit price; `real_price` is a reference/list price when supplied. Promotions with minimum units apply only when their conditions are proven for the requested listing quantity. These raw fields describe API evidence, not permission to call unsupported endpoints or bypass the helper.
 
+For the final ranked restaurant candidates, the CLI enriches search rows from:
+
+```http
+GET /api/restaurant-bus/store/{storeId}/menu
+```
+
+It joins `corridors[].products[]` by compound product ID and sanitizes `description`. A missing product, omitted description, or unavailable menu leaves `description` as null rather than inventing contents.
+
 ### CLI search output
 
 `search` defaults to compact results with a limit of 10. `--quantity N` requests listing units; it does not convert a title into a count of physical cans, bottles, or packs. Output remains structured JSON, with one compact JSON row per result; there is no detail-output flag. The exact result fields and nested types are documented in [comparison.md](comparison.md#search-decision-schema):
 
 ```text
-store_id, store_name, cart_type, product_id, name, presentation, ean,
+store_id, store_name, cart_type, product_id, name, description, presentation, ean,
 price, shipping_cost, minimum_order, eta, quantity, stock, minimum_units,
 available, age_restriction, requires_prescription,
 packaging: {status, title_units, presentation_units},
@@ -94,7 +102,7 @@ requested: {units, item_subtotal, estimated_delivered, minimum_shortfall, feasib
 alternative: null | {units, item_subtotal, estimated_delivered, requires_confirmation: true}
 ```
 
-Use `cart_type`, not raw retailer `store_type`, in commands. Unknown price, shipping cost, minimum order, and stock remain null rather than becoming zero. Estimates live under `requested` and `alternative`, not as top-level result cost fields. They evaluate an isolated listing basket without existing cart contents. `feasible: null` means unknown; true is not a final checkout guarantee.
+Use `cart_type`, not raw retailer `store_type`, in commands. Restaurant `description` is sanitized menu text when available and null otherwise; generic titles without a description do not establish a dish's ingredients. Unknown price, shipping cost, minimum order, and stock remain null rather than becoming zero. Estimates live under `requested` and `alternative`, not as top-level result cost fields. They evaluate an isolated listing basket without existing cart contents. `feasible: null` means unknown; true is not a final checkout guarantee.
 
 Packaging counts are title/presentation signals, not verified contents. Conflicting signals require clarification. A non-null alternative only proposes a quantity supported by known rules and stock; it requires user confirmation and does not authorize automatic mutation. It is not offered for regulated or weighted goods.
 

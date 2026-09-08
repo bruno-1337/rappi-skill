@@ -25,13 +25,14 @@ const currentPaymentContext = {
 
 test('search excludes unrelated API suggestions and ranks selected mode', () => {
   const payload = { query: 'Monster Energy', results: [
-    { ...baseProduct, store_id: '1', product_id: 'a', store_name: 'Turbo', name: 'Monster Energético Original', ean: '1', price: 10 },
+    { ...baseProduct, store_id: '1', product_id: 'a', store_name: 'Turbo', name: 'Monster Energético Original', description: 'Bebida energética sabor original.', ean: '1', price: 10 },
     { ...baseProduct, store_id: '2', product_id: 'b', store_name: 'Other', name: 'Red Bull Energy', ean: '2', price: 1, eta: { maximum_minutes: 5 } },
     { ...baseProduct, store_id: '3', product_id: 'c', store_name: 'Fast', name: 'Monster Mango', ean: '3', price: 11, eta: { maximum_minutes: 10 } },
   ] };
   const options = parseSearchOptions(['Monster', 'Energy', '--sort', 'fastest', '--limit', '10']);
   const ranked = rankSearch(payload, options);
   assert.deepEqual(ranked.results.map(row => row.product_id), ['c', 'a']);
+  assert.equal(ranked.results.find(row => row.product_id === 'a').description, 'Bebida energética sabor original.');
 });
 
 test('search keeps an individual listing ahead of a minimum-meeting pack and offers a separate two-unit basket', () => {
@@ -280,6 +281,15 @@ test('saved-card selection uses exact alias and keeps secrets out of summaries',
   assert.equal(selected.selection.payment_method_label, 'primary-card — VISA •••• 7890');
   assert.deepEqual(selected.payload.rappi_credit, { use_rappi_credit: true });
   assert.deepEqual(selected.payload.rappi_pay, { use_rappi_pay: false, rappi_pay_method_active: false });
+  const withoutOptionalBalances = structuredClone(currentPaymentContext);
+  delete withoutOptionalBalances.cartPayload[0].payment_method.rappi_credit;
+  delete withoutOptionalBalances.cartPayload[0].payment_method.rappi_pay;
+  const selectedWithoutBalances = buildPaymentSelection(response, 'primary-card', withoutOptionalBalances);
+  assert.deepEqual(selectedWithoutBalances.payload.rappi_credit, { use_rappi_credit: false });
+  assert.deepEqual(selectedWithoutBalances.payload.rappi_pay, {
+    use_rappi_pay: false,
+    rappi_pay_method_active: false,
+  });
   const unavailable = structuredClone(response);
   unavailable.payment_methods[0].available = false;
   assert.throws(() => buildPaymentSelection(unavailable, 'primary-card', currentPaymentContext), /not currently available/);

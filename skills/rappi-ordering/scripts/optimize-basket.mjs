@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 const MAX_STORES = 24;
 const MAX_COMBINATIONS = 50_000;

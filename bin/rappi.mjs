@@ -1,35 +1,8 @@
-#!/usr/bin/env node
-import { access, mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
-import { homedir } from 'node:os';
+#!/usr/bin/env bun
+import { mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { saveSession, sessionConfiguration } from '../src/session.mjs';
 import { runApiCommand } from '../src/commands.mjs';
-
-if (process.versions.bun) {
-  const runtime = process.platform === 'win32'
-    ? path.join(process.env.LOCALAPPDATA || homedir(), 'RappiConnector', 'runtime', 'node.exe')
-    : 'node';
-  if (process.platform === 'win32') {
-    try { await access(runtime); } catch {
-      console.error('Rappi CLI: run "bun run setup" first to install the local runtime.');
-      process.exit(1);
-    }
-  }
-  const child = spawn(runtime, process.argv.slice(1), { stdio: 'inherit', windowsHide: false });
-  const forward = signal => { if (child.exitCode === null) child.kill(signal); };
-  process.on('SIGINT', () => forward('SIGINT'));
-  process.on('SIGTERM', () => forward('SIGTERM'));
-  child.once('error', error => {
-    const message = error.code === 'ENOENT'
-      ? 'Node.js is required. Install Node.js 18 or newer and run setup again.'
-      : error.message;
-    console.error(`Rappi CLI: ${message}`);
-    process.exit(1);
-  });
-  child.once('exit', code => process.exit(code ?? 1));
-  await new Promise(() => {});
-}
 
 const OFFICIAL_URL = 'https://www.rappi.com.br/';
 const command = process.argv[2] ?? '--help';

@@ -5,7 +5,6 @@
 **Uma skill para agentes pesquisarem, compararem e comprarem no Rappi.**
 
 [![Bun](https://img.shields.io/badge/runtime-Bun-14151A?logo=bun&logoColor=white)](https://bun.sh/)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Windows](https://img.shields.io/badge/Windows-DPAPI-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![macOS](https://img.shields.io/badge/macOS-Keychain-000000?logo=apple&logoColor=white)](https://support.apple.com/guide/keychain-access/welcome/mac)
 [![Linux](https://img.shields.io/badge/Linux-Secret_Service-FCC624?logo=linux&logoColor=black)](https://www.freedesktop.org/wiki/Specifications/secret-storage-spec/)
@@ -207,8 +206,8 @@ orders list
 
 ### Requisitos
 
-- Windows x64, macOS ou Linux;
-- [Bun](https://bun.sh/) e Node.js 18 ou mais recente;
+- Windows, macOS ou Linux;
+- [Bun](https://bun.sh/);
 - `secret-tool` em Linux, fornecido pelo pacote de ferramentas do libsecret;
 - conta válida no Rappi Brasil.
 
@@ -251,7 +250,7 @@ Fixtures fictícias preservam a estrutura e as invariantes observáveis da API s
 ```text
 bin/                         entrada restrita da CLI
 src/                         cliente da API e regras de domínio
-scripts/                     instalação do runtime local
+scripts/                     setup do Chromium e credential store
 skills/rappi-ordering/       comportamento do agente, referências e otimizador
 test/                        testes determinísticos sem credenciais reais
 ```
@@ -259,7 +258,7 @@ test/                        testes determinísticos sem credenciais reais
 ## Limitações
 
 - Linux exige uma sessão compatível com Secret Service e o utilitário `secret-tool`.
-- O runtime Node.js gerenciado automaticamente pelo setup é exclusivo do Windows x64; macOS e Linux usam o Node.js instalado no sistema.
+- Bun executa a CLI, o setup e o Playwright em todas as plataformas suportadas.
 - A API usada pode mudar sem versionamento público.
 - A busca fornece estimativas; somente o checkout recalculado é autoritativo.
 - Produtos regulados, medicamentos sob prescrição e itens com restrição de idade não devem usar o fluxo genérico.

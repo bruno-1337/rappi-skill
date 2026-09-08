@@ -5,9 +5,10 @@
 **Uma skill para agentes pesquisarem, compararem e comprarem no Rappi.**
 
 [![Bun](https://img.shields.io/badge/runtime-Bun-14151A?logo=bun&logoColor=white)](https://bun.sh/)
-[![Node.js](https://img.shields.io/badge/runtime_auxiliar-Node.js_22-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Windows](https://img.shields.io/badge/plataforma-Windows-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/testes-50_passando-2EA44F)](#testes)
+[![Windows](https://img.shields.io/badge/Windows-DPAPI-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![macOS](https://img.shields.io/badge/macOS-Keychain-000000?logo=apple&logoColor=white)](https://support.apple.com/guide/keychain-access/welcome/mac)
+[![Linux](https://img.shields.io/badge/Linux-Secret_Service-FCC624?logo=linux&logoColor=black)](https://www.freedesktop.org/wiki/Specifications/secret-storage-spec/)
+[![Tests](https://img.shields.io/badge/testes-bun_test-2EA44F)](#testes)
 [![Status](https://img.shields.io/badge/status-experimental-F5A623)](#limitações)
 
 <img width="1812" height="216" alt="image" src="https://github.com/user-attachments/assets/fba545d8-d830-482f-b57a-485958f6af1e" />
@@ -37,6 +38,10 @@ O `rappi-skill` tira o navegador do caminho crítico. O agente trabalha com dado
 > “Procure café em grãos de 500 g e me mostre as opções com menor custo entregue.”
 
 O agente pode pesquisar por nome ou EAN, separar tamanhos e variantes, ignorar produtos indisponíveis e organizar os resultados por preço, prazo ou custo entregue estimado. Quando houver opções parecidas, ele apresenta as diferenças em vez de escolher silenciosamente por você.
+
+A busca separa **a quantidade pedida** de **uma alternativa para atingir o mínimo da loja**. Por exemplo: uma unidade custa R$ 10,29 e faltam R$ 4,71 para um mínimo de R$ 15; duas unidades desse mesmo anúncio somam R$ 20,58 antes das taxas finais. Essa alternativa é apenas uma sugestão que exige autorização — nunca muda o carrinho.
+
+Anúncios múltiplos não ganham prioridade só por atingirem o mínimo sozinhos. Quando o título diz “4 x”, mas a apresentação indica uma unidade, o resultado sinaliza conflito em vez de afirmar que se trata de um pacote confirmado. Quantidade do anúncio, estoque e mínimo financeiro são conceitos separados.
 
 ### Comparar o preço real de uma cesta
 
@@ -168,7 +173,7 @@ flowchart LR
     Z --> A
 
     U -->|login no site oficial| B[Chromium isolado]
-    B -->|cabeçalhos mínimos| D[Windows DPAPI]
+    B -->|cabeçalhos mínimos| D[Credenciais do sistema operacional]
     D -->|descriptografia em memória| C
 ```
 
@@ -186,6 +191,7 @@ O navegador é usado apenas no bootstrap de autenticação. As operações norma
 <summary><strong>Ver interface da CLI</strong></summary>
 
 ```text
+doctor
 auth login|status|clear
 search <query...> [--sort price|fastest|delivered] [--limit N] [--ean EAN] [--quantity N]
 addresses list
@@ -208,8 +214,9 @@ orders list
 
 ### Requisitos
 
-- Windows x64;
+- Windows, macOS ou Linux;
 - [Bun](https://bun.sh/);
+- `secret-tool` em Linux, fornecido pelo pacote de ferramentas do libsecret;
 - conta válida no Rappi Brasil.
 
 ```bash
@@ -220,21 +227,23 @@ bun run setup
 bun bin/rappi.mjs auth login
 ```
 
-`auth login` abre o site oficial em um perfil isolado. Depois da autenticação, ele armazena apenas os cabeçalhos necessários usando Windows DPAPI e fecha o navegador. O procedimento detalhado está em [`operations.md`](skills/rappi-ordering/references/operations.md).
+`auth login` abre o site oficial em um perfil isolado. Depois da autenticação, ele armazena apenas os cabeçalhos necessários usando Windows DPAPI, macOS Keychain ou Linux Secret Service e fecha o navegador. O procedimento detalhado está em [`operations.md`](skills/rappi-ordering/references/operations.md).
+
+Se houver dificuldade na instalação, execute `bun bin/rappi.mjs doctor`. O diagnóstico local verifica dependências, Chromium, helper do sistema e presença do arquivo de sessão, sem ler seu conteúdo, consultar a conta ou abrir o navegador. Arquivo presente não significa autenticação válida nem garante que o chaveiro esteja desbloqueado.
 
 ## Dados locais e credenciais
 
-O estado sensível fica fora do repositório:
+O estado sensível fica fora do repositório, no diretório nativo de cada plataforma:
 
-```text
-%LOCALAPPDATA%/RappiConnector/
-├── session.dpapi
-├── approvals/
-├── profile/
-└── runtime/
-```
+| Plataforma | Diretório |
+|---|---|
+| Windows | `%LOCALAPPDATA%/RappiConnector` |
+| macOS | `~/Library/Application Support/RappiConnector` |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/rappi-connector` |
 
-Arquivos DPAPI só podem ser descriptografados pelo mesmo usuário do Windows. Sessões, aprovações, perfis de navegador, tokens e payloads de pagamento não devem ser copiados, exibidos ou versionados.
+No Windows, os arquivos são protegidos diretamente com DPAPI. No macOS e Linux, eles usam AES-256-GCM com uma chave aleatória guardada, respectivamente, no Keychain e no Secret Service. O material descriptografado existe somente na memória do processo.
+
+Sessões, aprovações, perfis de navegador, tokens, chaves locais e payloads de pagamento não devem ser copiados, exibidos ou versionados.
 
 ## Testes
 
@@ -242,7 +251,7 @@ Arquivos DPAPI só podem ser descriptografados pelo mesmo usuário do Windows. S
 bun test
 ```
 
-A suíte possui **50 testes determinísticos e anonimizados**, sem acesso a contas reais e sem envio de pedidos. Ela cobre contratos da API, proteção da sessão, consumo atômico de aprovações, validação do carrinho, cálculo do checkout, reconciliação de pedidos e otimização de cestas.
+A suíte usa testes determinísticos e anonimizados, sem acesso a contas reais e sem envio de pedidos. Ela cobre contratos da API, proteção da sessão, consumo atômico de aprovações, validação do carrinho, cálculo do checkout, reconciliação de pedidos, otimização de cestas e decisões de quantidade diante de mínimos e embalagens conflitantes.
 
 Fixtures fictícias preservam a estrutura e as invariantes observáveis da API sem publicar dados pessoais ou credenciais.
 
@@ -251,15 +260,15 @@ Fixtures fictícias preservam a estrutura e as invariantes observáveis da API s
 ```text
 bin/                         entrada restrita da CLI
 src/                         cliente da API e regras de domínio
-scripts/                     instalação do runtime local
+scripts/                     setup do Chromium e credential store
 skills/rappi-ordering/       comportamento do agente, referências e otimizador
 test/                        testes determinísticos sem credenciais reais
 ```
 
 ## Limitações
 
-- O armazenamento de sessão depende de Windows DPAPI.
-- O runtime gerenciado do setup atualmente suporta apenas Windows x64.
+- Linux exige uma sessão compatível com Secret Service e o utilitário `secret-tool`.
+- Bun executa a CLI, o setup e o Playwright em todas as plataformas suportadas.
 - A API usada pode mudar sem versionamento público.
 - A busca fornece estimativas; somente o checkout recalculado é autoritativo.
 - Produtos regulados, medicamentos sob prescrição e itens com restrição de idade não devem usar o fluxo genérico.

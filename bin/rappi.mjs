@@ -1,41 +1,19 @@
-#!/usr/bin/env node
-import { access, mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
-import { homedir } from 'node:os';
+#!/usr/bin/env bun
+import { mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { saveSession } from '../src/session.mjs';
-import { runApiCommand } from '../src/commands.mjs';
-
-if (process.versions.bun && process.platform === 'win32') {
-  const runtime = path.join(process.env.LOCALAPPDATA || homedir(), 'RappiConnector', 'runtime', 'node.exe');
-  try { await access(runtime); } catch {
-    console.error('Rappi CLI: run "bun run setup" first to install the local runtime.');
-    process.exit(1);
-  }
-  const child = spawn(runtime, process.argv.slice(1), { stdio: 'inherit', windowsHide: false });
-  const forward = signal => { if (child.exitCode === null) child.kill(signal); };
-  process.on('SIGINT', () => forward('SIGINT'));
-  process.on('SIGTERM', () => forward('SIGTERM'));
-  child.once('error', error => { console.error(`Rappi CLI: ${error.message}`); process.exit(1); });
-  child.once('exit', code => process.exit(code ?? 1));
-  await new Promise(() => {});
-}
+import { saveSession, sessionConfiguration } from '../src/session.mjs';
+import { localDiagnostics } from '../src/diagnostics.mjs';
 
 const OFFICIAL_URL = 'https://www.rappi.com.br/';
 const command = process.argv[2] ?? '--help';
 
 function configuration() {
-  const home = path.resolve(process.env.RAPPI_CONNECTOR_HOME || (
-    process.env.LOCALAPPDATA
-      ? path.join(process.env.LOCALAPPDATA, 'RappiConnector')
-      : path.join(homedir(), '.rappi-connector')
-  ));
+  const session = sessionConfiguration();
   return {
-    home,
-    profile: path.join(home, 'profile'),
-    sessionFile: path.join(home, 'session.dpapi'),
-    authLock: path.join(home, 'auth.lock'),
-    authOwner: path.join(home, 'auth.lock', 'owner.json'),
+    ...session,
+    profile: path.join(session.home, 'profile'),
+    authLock: path.join(session.home, 'auth.lock'),
+    authOwner: path.join(session.home, 'auth.lock', 'owner.json'),
   };
 }
 
@@ -144,7 +122,7 @@ async function authLogin(config) {
     context.once('close', () => controller.abort(new Error('Login browser closed before an authenticated session was captured.')));
     const headers = await authenticatedHeaders(page, { signal: controller.signal });
     await saveSession(headers, { home: config.home, sessionFile: config.sessionFile });
-    console.log('RAPPI_AUTH_READY Session encrypted with Windows DPAPI. API commands run browser-free.');
+    console.log('RAPPI_AUTH_READY Session encrypted with the OS credential store. API commands run browser-free.');
   } finally {
     if (context) await context.close().catch(() => {});
     await rm(config.authLock, { recursive: true, force: true });
@@ -152,15 +130,21 @@ async function authLogin(config) {
 }
 
 function help() {
-  console.log(`Rappi API-first CLI\n\nUsage:\n  bun bin/rappi.mjs auth login|status|clear\n  bun bin/rappi.mjs search <query...> [--sort price|fastest|delivered] [--limit N] [--ean EAN] [--quantity N]\n  bun bin/rappi.mjs addresses list|set <id>\n  bun bin/rappi.mjs cart get\n  bun bin/rappi.mjs cart add --query Q --store-type TYPE --store-id ID --product-id ID [--units N]\n  bun bin/rappi.mjs cart remove --store-type TYPE --store-id ID --product-id ID\n  bun bin/rappi.mjs payments list --store-type TYPE --store-id ID\n  bun bin/rappi.mjs payments select --store-type TYPE --store-id ID --alias NAME\n  bun bin/rappi.mjs checkout preview --store-type TYPE\n  bun bin/rappi.mjs checkout approve --store-type TYPE\n  bun bin/rappi.mjs checkout cancel <approval-id>\n  bun bin/rappi.mjs order --store-type TYPE --approval-id ID\n  bun bin/rappi.mjs orders list`);
+  console.log(`Rappi API-first CLI\n\nUsage:\n  bun bin/rappi.mjs doctor\n  bun bin/rappi.mjs auth login|status|clear\n  bun bin/rappi.mjs search <query...> [--sort price|fastest|delivered] [--limit N] [--ean EAN] [--quantity N]\n  bun bin/rappi.mjs addresses list|set <id>\n  bun bin/rappi.mjs cart get\n  bun bin/rappi.mjs cart add --query Q --store-type TYPE --store-id ID --product-id ID [--units N]\n  bun bin/rappi.mjs cart remove --store-type TYPE --store-id ID --product-id ID\n  bun bin/rappi.mjs payments list --store-type TYPE --store-id ID\n  bun bin/rappi.mjs payments select --store-type TYPE --store-id ID --alias NAME\n  bun bin/rappi.mjs checkout preview --store-type TYPE\n  bun bin/rappi.mjs checkout approve --store-type TYPE\n  bun bin/rappi.mjs checkout cancel <approval-id>\n  bun bin/rappi.mjs order --store-type TYPE --approval-id ID\n  bun bin/rappi.mjs orders list`);
 }
 
 try {
   if (command === '--help' || command === '-h') {
     help();
+  } else if (command === 'doctor') {
+    if (process.argv.length !== 3) throw new Error('doctor does not accept arguments.');
+    const diagnostic = await localDiagnostics();
+    process.stdout.write(`${JSON.stringify(diagnostic, null, 2)}\n`);
+    process.exitCode = diagnostic.readiness.local_setup_ready ? 0 : 1;
   } else if (command === 'auth' && process.argv.length === 4 && process.argv[3] === 'login') {
     await authLogin(configuration());
   } else {
+    const { runApiCommand } = await import('../src/commands.mjs');
     const handled = await runApiCommand(command, process.argv.slice(3));
     if (handled === false) throw new Error(`Unknown command: ${command}. Use --help.`);
   }

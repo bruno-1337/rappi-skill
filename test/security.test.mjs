@@ -3,12 +3,38 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { saveSession, loadSession, deleteSession } from '../src/session.mjs';
+import { protectLocalData, saveSession, loadSession, deleteSession, sessionConfiguration } from '../src/session.mjs';
 import { prepareApproval, claimApproval, cancelApproval, canonicalDigest, checkoutContextHashes } from '../src/approval.mjs';
 
 const transform = async (mode, value) => mode === 'protect'
   ? Buffer.from(value, 'utf8').toString('base64')
   : Buffer.from(value, 'base64').toString('utf8');
+
+function memoryCredentialRunner(platform) {
+  let stored = null;
+  const calls = [];
+  const runCommand = async (command, args, input = '') => {
+    calls.push({ command, args: [...args], input });
+    if (platform === 'darwin') {
+      if (args[0] === 'find-generic-password') {
+        return stored == null ? { code: 44, stdout: '' } : { code: 0, stdout: `${stored}\n` };
+      }
+      const match = input.match(/-w "([A-Za-z0-9+/=]+)"/);
+      if (!match) return { code: 1, stdout: '' };
+      stored = match[1];
+      return { code: 0, stdout: '' };
+    }
+    if (args[0] === 'lookup') {
+      return stored == null ? { code: 1, stdout: '' } : { code: 0, stdout: `${stored}\n` };
+    }
+    if (args[0] === 'store') {
+      stored = input;
+      return { code: 0, stdout: '' };
+    }
+    return { code: 2, stdout: '' };
+  };
+  return { calls, runCommand, stored: () => stored };
+}
 
 async function temporaryConfig() {
   const home = await mkdtemp(path.join(tmpdir(), 'rappi-test-'));
@@ -37,6 +63,43 @@ test('session round-trips through injected protection and deletes cleanly', asyn
     await deleteSession(config);
     await assert.rejects(() => loadSession(config, transform), /No saved API session/);
   } finally { await rm(config.home, { recursive: true, force: true }); }
+});
+
+test('macOS and Linux protect local data with OS-stored keys and authenticated encryption', async () => {
+  for (const platform of ['darwin', 'linux']) {
+    const credentials = memoryCredentialRunner(platform);
+    const protectedValue = await protectLocalData('protect', 'sensitive fixture', {
+      platform,
+      runCommand: credentials.runCommand,
+    });
+    assert.match(protectedValue, /^rappi-aes-gcm-v1:/);
+    assert.equal(protectedValue.includes('sensitive fixture'), false);
+    assert.equal(await protectLocalData('unprotect', protectedValue, {
+      platform,
+      runCommand: credentials.runCommand,
+    }), 'sensitive fixture');
+    assert.equal(credentials.calls.some(call => call.args.includes(credentials.stored())), false);
+    const replacement = protectedValue.endsWith('A') ? 'B' : 'A';
+    await assert.rejects(() => protectLocalData('unprotect', `${protectedValue.slice(0, -1)}${replacement}`, {
+      platform,
+      runCommand: credentials.runCommand,
+    }));
+  }
+});
+
+test('session storage follows native per-user data locations', () => {
+  assert.equal(sessionConfiguration({
+    platform: 'darwin', env: {}, homeDirectory: '/users/fixture',
+  }).home, path.resolve('/users/fixture', 'Library', 'Application Support', 'RappiConnector'));
+  assert.equal(sessionConfiguration({
+    platform: 'linux', env: {}, homeDirectory: '/home/fixture',
+  }).home, path.resolve('/home/fixture', '.local', 'state', 'rappi-connector'));
+  assert.equal(sessionConfiguration({
+    platform: 'linux', env: { XDG_STATE_HOME: '/state' }, homeDirectory: '/home/fixture',
+  }).home, path.resolve('/state', 'rappi-connector'));
+  assert.equal(sessionConfiguration({
+    platform: 'linux', env: { XDG_STATE_HOME: 'relative-state' }, homeDirectory: '/home/fixture',
+  }).home, path.resolve('/home/fixture', '.local', 'state', 'rappi-connector'));
 });
 
 test('approval is atomic one-shot under concurrent claims', async () => {

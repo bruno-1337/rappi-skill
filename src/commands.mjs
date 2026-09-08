@@ -45,7 +45,9 @@ async function clientForSession() {
 async function searchCommand(args) {
   const options = parseSearchOptions(args);
   const { client } = await clientForSession();
-  output(rankSearch(await client.search(options.query), options));
+  const { results, ...summary } = rankSearch(await client.search(options.query), options);
+  const header = JSON.stringify(summary).slice(0, -1);
+  process.stdout.write(`${header},"results":[\n${results.map(row => JSON.stringify(row)).join(',\n')}\n]}\n`);
 }
 
 async function authCommand(args) {

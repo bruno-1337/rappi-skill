@@ -35,6 +35,24 @@ test('search uses fixed endpoints, active location, and sanitizes remote text', 
   assert.equal(calls[0].options.headers.authorization, 'Bearer fixture-value');
 });
 
+test('restaurant menu exposes sanitized descriptions by compound product ID', async () => {
+  const calls = [];
+  const client = new RappiClient(headers, {
+    baseUrl: 'http://127.0.0.1:12345/',
+    fetchImpl: async url => {
+      calls.push(String(url));
+      return response({ corridors: [
+        { products: [{ id: '10_20', description: 'Arroz, feijão\u0000 e frango.' }] },
+        { products: [{ id: '10_21', description: '' }] },
+      ] });
+    },
+  });
+  const descriptions = await client.restaurantMenuDescriptions('10');
+  assert.equal(calls[0], 'http://127.0.0.1:12345/api/restaurant-bus/store/10/menu');
+  assert.equal(descriptions.get('10_20'), 'Arroz, feijão  e frango.');
+  assert.equal(descriptions.get('10_21'), null);
+});
+
 test('authentication rejection has a dedicated error', async () => {
   const client = new RappiClient(headers, { baseUrl: 'http://127.0.0.1:12345/', fetchImpl: async () => response({ error: true }, 401) });
   await assert.rejects(() => client.auth(), SessionExpiredError);

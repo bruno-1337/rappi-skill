@@ -42,10 +42,36 @@ async function clientForSession() {
   return { client: new RappiClient(session.headers), session };
 }
 
+async function enrichRestaurantDescriptions(client, results) {
+  const stores = new Map();
+  for (const result of results) {
+    if (result.cart_type !== 'restaurant') continue;
+    const rows = stores.get(result.store_id) ?? [];
+    rows.push(result);
+    stores.set(result.store_id, rows);
+  }
+  const entries = [...stores.entries()];
+  for (let offset = 0; offset < entries.length; offset += 5) {
+    const batch = await Promise.all(entries.slice(offset, offset + 5).map(async ([storeId, rows]) => {
+      try {
+        return [rows, await client.restaurantMenuDescriptions(storeId)];
+      } catch (error) {
+        if (error instanceof SessionExpiredError) throw error;
+        return [rows, null];
+      }
+    }));
+    for (const [rows, descriptions] of batch) {
+      if (!descriptions) continue;
+      for (const row of rows) row.description = descriptions.get(row.product_id) ?? null;
+    }
+  }
+}
+
 async function searchCommand(args) {
   const options = parseSearchOptions(args);
   const { client } = await clientForSession();
   const { results, ...summary } = rankSearch(await client.search(options.query), options);
+  await enrichRestaurantDescriptions(client, results);
   const header = JSON.stringify(summary).slice(0, -1);
   process.stdout.write(`${header},"results":[\n${results.map(row => JSON.stringify(row)).join(',\n')}\n]}\n`);
 }

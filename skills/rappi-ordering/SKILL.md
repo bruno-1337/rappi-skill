@@ -23,14 +23,14 @@ Identify the requested product, exact variant, and quantity. Quantity means **li
 
 ### 2. Search
 
-Use focused queries and EAN when known. Compact results default to 10; start with at most 20 and narrow the query rather than requesting a huge response. Exclude unavailable, closed, out-of-stock, prescription, and age-restricted candidates unless explicitly requested for read-only inspection. Bounded search supports “not found in these results,” not “no store sells it anywhere.”
+Use focused queries and EAN when known. Compact results default to 10; start with at most 20 and narrow the query rather than requesting a huge response. Restaurant results include menu descriptions when Rappi exposes them. Use those descriptions to distinguish generic names such as “Executivo 1” and “Executivo 2”; never recommend an ambiguously named dish from its title alone. If `description` is null, say that the composition is unavailable and prefer described candidates or ask the user rather than guessing. Exclude unavailable, closed, out-of-stock, prescription, and age-restricted candidates unless explicitly requested for read-only inspection. Bounded search supports “not found in these results,” not “no store sells it anywhere.”
 
 ### 3. Compare
 
 Compare equivalent variants at the requested listing quantity and estimated delivered cost, not sticker price alone. Each compact result contains:
 
 ```text
-store_id, store_name, cart_type, product_id, name, presentation, ean,
+store_id, store_name, cart_type, product_id, name, description, presentation, ean,
 price, shipping_cost, minimum_order, eta, quantity, stock, minimum_units,
 available, age_restriction, requires_prescription,
 packaging: {status, title_units, presentation_units},

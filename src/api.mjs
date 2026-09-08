@@ -212,6 +212,21 @@ export class RappiClient {
     return addresses;
   }
 
+  async restaurantMenuDescriptions(storeId) {
+    const id = requireId(storeId, 'store id');
+    const payload = await this.request('GET', `/api/restaurant-bus/store/${encodeURIComponent(id)}/menu`);
+    if (!Array.isArray(payload?.corridors)) throw new ApiError('Restaurant menu response has an invalid shape.');
+    const descriptions = new Map();
+    for (const corridor of payload.corridors) {
+      if (!Array.isArray(corridor?.products)) continue;
+      for (const product of corridor.products) {
+        const productId = requireId(product?.id ?? product?.product_id, 'menu product id');
+        descriptions.set(productId, cleanRemote(product.description) || null);
+      }
+    }
+    return descriptions;
+  }
+
   async search(query) {
     const normalized = String(query ?? '').trim();
     if (!normalized || normalized.length > 200 || /[\u0000-\u001f\u007f-\u009f]/.test(normalized)) throw new ApiError('Search query must contain 1-200 printable characters.');
@@ -244,6 +259,7 @@ export class RappiClient {
           product_id: requireId(product.id ?? product.product_id, 'product id'),
           master_product_id: cleanRemote(product.master_product_id),
           name: cleanRemote(product.name),
+          description: cleanRemote(product.description) || null,
           presentation: cleanRemote(product.presentation),
           ean: cleanRemote(product.ean),
           price,

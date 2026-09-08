@@ -178,6 +178,7 @@ export function rankSearch(searchPayload, options) {
       cart_type: row.cart_type,
       product_id: row.product_id,
       name: row.name ?? '',
+      description: row.description || null,
       presentation: row.presentation ?? '',
       ean: row.ean ?? '',
       price: money(price),

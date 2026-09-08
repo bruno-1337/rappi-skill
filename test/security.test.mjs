@@ -19,10 +19,19 @@ function memoryCredentialRunner(platform) {
       if (args[0] === 'find-generic-password') {
         return stored == null ? { code: 44, stdout: '' } : { code: 0, stdout: `${stored}\n` };
       }
-      const match = input.match(/-w "([A-Za-z0-9+/=]+)"/);
-      if (!match) return { code: 1, stdout: '' };
-      stored = match[1];
-      return { code: 0, stdout: '' };
+      if (args[0] === '-i') {
+        // Real `security -i` rejects `quit` with exit code 1; a plain write
+        // succeeds and the process exits cleanly on stdin EOF.
+        const lines = input.split('\n').filter(Boolean);
+        if (lines.some(line => line === 'quit')) return { code: 1, stdout: '' };
+        const write = lines.find(line => line.startsWith('add-generic-password'));
+        if (!write) return { code: 1, stdout: '' };
+        const match = write.match(/-w "([A-Za-z0-9+/=]+)"$/);
+        if (!match) return { code: 1, stdout: '' };
+        stored = match[1];
+        return { code: 0, stdout: '' };
+      }
+      return { code: 1, stdout: '' };
     }
     if (args[0] === 'lookup') {
       return stored == null ? { code: 1, stdout: '' } : { code: 0, stdout: `${stored}\n` };

@@ -78,7 +78,7 @@ async function macOSMasterKey(runCommand) {
   if (result.code !== 44) throw new Error(`macOS Keychain lookup failed (${result.code}).`);
   const generated = randomBytes(32).toString('base64');
   const command = `add-generic-password -U -a "${KEY_ACCOUNT}" -s "${KEY_SERVICE}" -w "${generated}"`;
-  result = await runCommand('/usr/bin/security', ['-i'], `${command}\nquit\n`);
+  result = await runCommand('/usr/bin/security', ['-i'], `${command}\n`);
   if (result.code !== 0) throw new Error(`macOS Keychain write failed (${result.code}).`);
   result = await lookup();
   if (result.code !== 0) throw new Error(`macOS Keychain verification failed (${result.code}).`);

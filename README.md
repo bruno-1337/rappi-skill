@@ -2,7 +2,7 @@
 
 # rappi-skill
 
-**Uma skill para agentes pesquisarem, compararem e comprarem no Rappi com segurança — sem depender de navegador para cada passo.**
+**Uma skill para agentes pesquisarem, compararem e comprarem no Rappi.**
 
 [![Bun](https://img.shields.io/badge/runtime-Bun-14151A?logo=bun&logoColor=white)](https://bun.sh/)
 [![Node.js](https://img.shields.io/badge/runtime_auxiliar-Node.js_22-339933?logo=node.js&logoColor=white)](https://nodejs.org/)

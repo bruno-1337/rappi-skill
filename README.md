@@ -10,6 +10,9 @@
 [![Tests](https://img.shields.io/badge/testes-50_passando-2EA44F)](#testes)
 [![Status](https://img.shields.io/badge/status-experimental-F5A623)](#limitações)
 
+<img width="1812" height="216" alt="image" src="https://github.com/user-attachments/assets/fba545d8-d830-482f-b57a-485958f6af1e" />
+
+
 Transforme pedidos em linguagem natural em pesquisas, comparações de cesta e compras supervisionadas — mantendo credenciais fora do contexto do agente.
 
 </div>

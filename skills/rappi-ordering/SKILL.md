@@ -5,7 +5,7 @@ description: Search and compare products, manage addresses and carts, preview ch
 
 # Rappi Ordering
 
-Resolve the connector repo as `../..` from this skill directory. Normal operations must run with the browser closed. Optimize delivered basket cost, not sticker price alone.
+Resolve this skill to its filesystem path first; the connector repo is two parent directories above it. Never use a `skill://` URI as `cwd`. Normal operations must run with the browser closed. Optimize delivered basket cost, not sticker price alone.
 
 ## Required references
 
@@ -13,7 +13,7 @@ Resolve the connector repo as `../..` from this skill directory. Normal operatio
 - Read [references/operations.md](references/operations.md) before any mutation, checkout, or order.
 - Read [references/comparison.md](references/comparison.md) for product equivalence or multi-item baskets.
 
-Run commands as `bun bin/rappi.mjs ...` with the resolved connector repo as `cwd`.
+Run finite commands as `bun bin/rappi.mjs ...` with the resolved connector repo as `cwd`. On a fresh clone, run `bun install` before `bun run setup`. For a supervised `auth login`, resolve Bun to its absolute executable path because a non-interactive process launcher may not load the shell's `PATH`.
 
 ## Authentication
 
@@ -58,10 +58,10 @@ Search, compare, inspect availability, list address labels, show cart summaries,
 
 For search:
 
-1. Use focused queries and EAN when known.
-2. Exclude unavailable, closed, regulated, prescription, and out-of-stock items unless explicitly requested.
+1. Use focused queries and EAN when known. Start with at most 20 results; narrow the query instead of requesting 100 results and filtering a huge response in the shell.
+2. Exclude unavailable, closed, regulated, prescription, and out-of-stock items unless the user explicitly requests them.
 3. Compare compatible variants and normalized quantities only.
-4. Report item price, estimated delivery fee, ETA, minimum order, and minimum shortfall.
+4. Report item price, estimated delivery fee, ETA, minimum order, and minimum shortfall. `minimum_units` is a product quantity constraint; `minimum_shortfall` is the remaining store-level basket value. Do not say one unit cannot be added when `minimum_units` is 1—explain that the basket cannot check out below the store minimum.
 5. State that checkout recalculation is authoritative for final fees and timing.
 
 For a basket, establish candidate equivalence first, then use `scripts/optimize-basket.mjs`. Do not let the optimizer decide semantic equivalence.

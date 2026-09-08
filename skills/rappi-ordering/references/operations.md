@@ -1,6 +1,6 @@
 # API-first operating procedure
 
-The connector repo is `../..` relative to this skill directory. Resolve it to an absolute path, use it as `cwd`, and run finite commands with `bun bin/rappi.mjs ...`. Run `bun install && bun run setup` once when installing the repo.
+The connector repo is two parent directories above this skill's resolved filesystem path. Never use a `skill://` URI as `cwd`. Resolve Bun to an absolute executable path for supervised processes because they may not load the shell's `PATH`. On a fresh clone, run `bun install` and only then `bun run setup`; use the repo as `cwd` for all commands.
 
 ## Authentication bootstrap
 

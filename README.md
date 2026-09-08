@@ -8,7 +8,7 @@
 [![Windows](https://img.shields.io/badge/Windows-DPAPI-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![macOS](https://img.shields.io/badge/macOS-Keychain-000000?logo=apple&logoColor=white)](https://support.apple.com/guide/keychain-access/welcome/mac)
 [![Linux](https://img.shields.io/badge/Linux-Secret_Service-FCC624?logo=linux&logoColor=black)](https://www.freedesktop.org/wiki/Specifications/secret-storage-spec/)
-[![Tests](https://img.shields.io/badge/testes-52_passando-2EA44F)](#testes)
+[![Tests](https://img.shields.io/badge/testes-bun_test-2EA44F)](#testes)
 [![Status](https://img.shields.io/badge/status-experimental-F5A623)](#limitações)
 
 Transforme pedidos em linguagem natural em pesquisas, comparações de cesta e compras supervisionadas — mantendo credenciais fora do contexto do agente.
@@ -35,6 +35,10 @@ O `rappi-skill` tira o navegador do caminho crítico. O agente trabalha com dado
 > “Procure café em grãos de 500 g e me mostre as opções com menor custo entregue.”
 
 O agente pode pesquisar por nome ou EAN, separar tamanhos e variantes, ignorar produtos indisponíveis e organizar os resultados por preço, prazo ou custo entregue estimado. Quando houver opções parecidas, ele apresenta as diferenças em vez de escolher silenciosamente por você.
+
+A busca separa **a quantidade pedida** de **uma alternativa para atingir o mínimo da loja**. Por exemplo: uma unidade custa R$ 10,29 e faltam R$ 4,71 para um mínimo de R$ 15; duas unidades desse mesmo anúncio somam R$ 20,58 antes das taxas finais. Essa alternativa é apenas uma sugestão que exige autorização — nunca muda o carrinho.
+
+Anúncios múltiplos não ganham prioridade só por atingirem o mínimo sozinhos. Quando o título diz “4 x”, mas a apresentação indica uma unidade, o resultado sinaliza conflito em vez de afirmar que se trata de um pacote confirmado. Quantidade do anúncio, estoque e mínimo financeiro são conceitos separados.
 
 ### Comparar o preço real de uma cesta
 
@@ -184,6 +188,7 @@ O navegador é usado apenas no bootstrap de autenticação. As operações norma
 <summary><strong>Ver interface da CLI</strong></summary>
 
 ```text
+doctor
 auth login|status|clear
 search <query...> [--sort price|fastest|delivered] [--limit N] [--ean EAN] [--quantity N]
 addresses list
@@ -221,6 +226,8 @@ bun bin/rappi.mjs auth login
 
 `auth login` abre o site oficial em um perfil isolado. Depois da autenticação, ele armazena apenas os cabeçalhos necessários usando Windows DPAPI, macOS Keychain ou Linux Secret Service e fecha o navegador. O procedimento detalhado está em [`operations.md`](skills/rappi-ordering/references/operations.md).
 
+Se houver dificuldade na instalação, execute `bun bin/rappi.mjs doctor`. O diagnóstico local verifica dependências, Chromium, helper do sistema e presença do arquivo de sessão, sem ler seu conteúdo, consultar a conta ou abrir o navegador. Arquivo presente não significa autenticação válida nem garante que o chaveiro esteja desbloqueado.
+
 ## Dados locais e credenciais
 
 O estado sensível fica fora do repositório, no diretório nativo de cada plataforma:
@@ -241,7 +248,7 @@ Sessões, aprovações, perfis de navegador, tokens, chaves locais e payloads de
 bun test
 ```
 
-A suíte possui **52 testes determinísticos e anonimizados**, sem acesso a contas reais e sem envio de pedidos. Ela cobre contratos da API, proteção da sessão, consumo atômico de aprovações, validação do carrinho, cálculo do checkout, reconciliação de pedidos e otimização de cestas.
+A suíte usa testes determinísticos e anonimizados, sem acesso a contas reais e sem envio de pedidos. Ela cobre contratos da API, proteção da sessão, consumo atômico de aprovações, validação do carrinho, cálculo do checkout, reconciliação de pedidos, otimização de cestas e decisões de quantidade diante de mínimos e embalagens conflitantes.
 
 Fixtures fictícias preservam a estrutura e as invariantes observáveis da API sem publicar dados pessoais ou credenciais.
 

@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { saveSession, sessionConfiguration } from '../src/session.mjs';
-import { runApiCommand } from '../src/commands.mjs';
+import { localDiagnostics } from '../src/diagnostics.mjs';
 
 const OFFICIAL_URL = 'https://www.rappi.com.br/';
 const command = process.argv[2] ?? '--help';
@@ -130,15 +130,21 @@ async function authLogin(config) {
 }
 
 function help() {
-  console.log(`Rappi API-first CLI\n\nUsage:\n  bun bin/rappi.mjs auth login|status|clear\n  bun bin/rappi.mjs search <query...> [--sort price|fastest|delivered] [--limit N] [--ean EAN] [--quantity N]\n  bun bin/rappi.mjs addresses list|set <id>\n  bun bin/rappi.mjs cart get\n  bun bin/rappi.mjs cart add --query Q --store-type TYPE --store-id ID --product-id ID [--units N]\n  bun bin/rappi.mjs cart remove --store-type TYPE --store-id ID --product-id ID\n  bun bin/rappi.mjs payments list --store-type TYPE --store-id ID\n  bun bin/rappi.mjs payments select --store-type TYPE --store-id ID --alias NAME\n  bun bin/rappi.mjs checkout preview --store-type TYPE\n  bun bin/rappi.mjs checkout approve --store-type TYPE\n  bun bin/rappi.mjs checkout cancel <approval-id>\n  bun bin/rappi.mjs order --store-type TYPE --approval-id ID\n  bun bin/rappi.mjs orders list`);
+  console.log(`Rappi API-first CLI\n\nUsage:\n  bun bin/rappi.mjs doctor\n  bun bin/rappi.mjs auth login|status|clear\n  bun bin/rappi.mjs search <query...> [--sort price|fastest|delivered] [--limit N] [--ean EAN] [--quantity N]\n  bun bin/rappi.mjs addresses list|set <id>\n  bun bin/rappi.mjs cart get\n  bun bin/rappi.mjs cart add --query Q --store-type TYPE --store-id ID --product-id ID [--units N]\n  bun bin/rappi.mjs cart remove --store-type TYPE --store-id ID --product-id ID\n  bun bin/rappi.mjs payments list --store-type TYPE --store-id ID\n  bun bin/rappi.mjs payments select --store-type TYPE --store-id ID --alias NAME\n  bun bin/rappi.mjs checkout preview --store-type TYPE\n  bun bin/rappi.mjs checkout approve --store-type TYPE\n  bun bin/rappi.mjs checkout cancel <approval-id>\n  bun bin/rappi.mjs order --store-type TYPE --approval-id ID\n  bun bin/rappi.mjs orders list`);
 }
 
 try {
   if (command === '--help' || command === '-h') {
     help();
+  } else if (command === 'doctor') {
+    if (process.argv.length !== 3) throw new Error('doctor does not accept arguments.');
+    const diagnostic = await localDiagnostics();
+    process.stdout.write(`${JSON.stringify(diagnostic, null, 2)}\n`);
+    process.exitCode = diagnostic.readiness.local_setup_ready ? 0 : 1;
   } else if (command === 'auth' && process.argv.length === 4 && process.argv[3] === 'login') {
     await authLogin(configuration());
   } else {
+    const { runApiCommand } = await import('../src/commands.mjs');
     const handled = await runApiCommand(command, process.argv.slice(3));
     if (handled === false) throw new Error(`Unknown command: ${command}. Use --help.`);
   }

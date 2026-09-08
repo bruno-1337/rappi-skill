@@ -227,7 +227,7 @@ export class RappiClient {
       const storeId = requireId(store.store_id ?? store.id, 'store id');
       const eta = parseEta(store.eta ?? store.eta_value);
       for (const product of (Array.isArray(store.products) ? store.products : [])) {
-        const price = finiteMoney(product.price, 'product.price');
+        const price = product.price == null ? null : finiteMoney(product.price, 'product.price');
         results.push({
           store_id: storeId,
           store_name: cleanRemote(store.store_name ?? store.name),
@@ -238,8 +238,8 @@ export class RappiClient {
             ? 'turbo'
             : (/restaurant/i.test(String(store.vertical ?? store.vertical_group)) ? 'restaurant' : 'market'),
           eta,
-          shipping_cost: finiteMoney(store.shipping_cost, 'store.shipping_cost'),
-          minimum_order: finiteMoney(store.mov, 'store.mov'),
+          shipping_cost: store.shipping_cost == null ? null : finiteMoney(store.shipping_cost, 'store.shipping_cost'),
+          minimum_order: store.mov == null ? null : finiteMoney(store.mov, 'store.mov'),
           closed: Boolean(store.is_closed || store.status === 'CLOSED'),
           product_id: requireId(product.id ?? product.product_id, 'product id'),
           master_product_id: cleanRemote(product.master_product_id),
@@ -247,8 +247,9 @@ export class RappiClient {
           presentation: cleanRemote(product.presentation),
           ean: cleanRemote(product.ean),
           price,
-          real_price: finiteMoney(product.real_price ?? product.price, 'product.real_price'),
-          stock: Number.isFinite(Number(product.stock)) ? Number(product.stock) : null,
+          real_price: product.real_price == null ? price : finiteMoney(product.real_price, 'product.real_price'),
+          stock: product.stock != null && String(product.stock).trim() !== '' && typeof product.stock !== 'boolean'
+            && Number.isFinite(Number(product.stock)) ? Number(product.stock) : null,
           available: product.is_available !== false && product.in_stock !== false && Number(product.stock ?? 1) !== 0,
           sale_type: cleanRemote(product.sale_type),
           minimum_units: Math.max(1, Number(product.min_purchasing_units ?? 1)),

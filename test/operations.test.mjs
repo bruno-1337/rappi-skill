@@ -34,6 +34,144 @@ test('search excludes unrelated API suggestions and ranks selected mode', () => 
   assert.deepEqual(ranked.results.map(row => row.product_id), ['c', 'a']);
 });
 
+test('search keeps an individual listing ahead of a minimum-meeting pack and offers a separate two-unit basket', () => {
+  const payload = { query: 'Spark Drink', carts: [{
+    store_type: 'market',
+    stores: [{ id: 'fixture', products: [{ id: 'existing', units: 1, price: 100 }] }],
+  }], results: [
+    { ...baseProduct, store_id: 'fixture', product_id: 'pack', name: '4 x Spark Drink', presentation: '4 X 473 mL', price: 41.16, shipping_cost: 6.99 },
+    { ...baseProduct, store_id: 'fixture', product_id: 'single', name: 'Spark Drink', price: 10.29, shipping_cost: 6.99 },
+  ] };
+  const ranked = rankSearch(payload, parseSearchOptions(['Spark', 'Drink']));
+  assert.equal(ranked.estimates_scope, 'isolated_basket');
+  assert.deepEqual(ranked.results.map(row => row.product_id), ['single', 'pack']);
+  const [single, pack] = ranked.results;
+  assert.deepEqual(single.requested, {
+    units: 1, item_subtotal: 10.29, estimated_delivered: 17.28, minimum_shortfall: 4.71, feasible: false,
+  });
+  assert.deepEqual(single.alternative, {
+    units: 2, item_subtotal: 20.58, estimated_delivered: 27.57, requires_confirmation: true,
+  });
+  assert.equal(single.quantity, 1);
+  assert.deepEqual(pack.packaging, { status: 'multiple_indicated', title_units: 4, presentation_units: 4 });
+  assert.equal(pack.requested.units, 1);
+  assert.equal(pack.requested.item_subtotal, 41.16);
+  assert.equal(pack.alternative, null);
+});
+
+test('delivered search compares the least feasible basket instead of hiding low-minimum stores behind cheap units', () => {
+  const payload = { query: 'Spark', results: [
+    { ...baseProduct, store_id: 'high-minimum', product_id: 'cheap-unit', name: 'Spark', price: 8.7, minimum_order: 100, stock: 20, shipping_cost: 0 },
+    { ...baseProduct, store_id: 'low-minimum', product_id: 'two-units', name: 'Spark', price: 10.29, minimum_order: 15, stock: 5, shipping_cost: 0 },
+    { ...baseProduct, store_id: 'sold-short', product_id: 'insufficient-stock', name: 'Spark', price: 7, minimum_order: 100, stock: 1, shipping_cost: 0 },
+  ] };
+  const delivered = rankSearch(payload, parseSearchOptions(['Spark'])).results;
+  assert.deepEqual(delivered.map(row => row.product_id), ['two-units', 'cheap-unit', 'insufficient-stock']);
+  assert.equal(delivered[0].requested.units, 1);
+  assert.equal(delivered[0].requested.feasible, false);
+  assert.equal(delivered[0].alternative.units, 2);
+  assert.equal(delivered[0].alternative.item_subtotal, 20.58);
+  const byPrice = rankSearch(payload, parseSearchOptions(['Spark', '--sort', 'price'])).results;
+  assert.deepEqual(byPrice.map(row => row.product_id), ['insufficient-stock', 'cheap-unit', 'two-units']);
+});
+
+test('search does not offer unstocked alternatives and distinguishes unknown stock from insufficient stock', () => {
+  const payload = { query: 'Spark', results: [
+    { ...baseProduct, store_id: 'fixture', product_id: 'limited', name: 'Spark', price: 10.29, shipping_cost: 0, stock: 1 },
+    { ...baseProduct, store_id: 'fixture', product_id: 'unknown', name: 'Spark', price: 10.29, shipping_cost: 0, stock: null },
+  ] };
+  const one = rankSearch(payload, parseSearchOptions(['Spark'])).results;
+  assert.deepEqual(one.map(row => row.alternative), [null, null]);
+  const two = rankSearch(payload, parseSearchOptions(['Spark', '--quantity', '2'])).results;
+  assert.deepEqual(two.map(row => [row.product_id, row.requested.feasible]), [['limited', false], ['unknown', null]]);
+});
+
+test('search respects minimum listing units and leaves an exact request unchanged', () => {
+  const payload = { query: 'Spark', results: [{
+    ...baseProduct, store_id: 'fixture', product_id: 'single', name: 'Spark',
+    price: 0.29, shipping_cost: 0.02, minimum_order: 0.87, minimum_units: 4,
+  }] };
+  const requested = rankSearch(payload, parseSearchOptions(['Spark', '--quantity', '3'])).results[0];
+  assert.deepEqual(requested.requested, {
+    units: 3, item_subtotal: 0.87, estimated_delivered: 0.89, minimum_shortfall: 0, feasible: false,
+  });
+  assert.deepEqual(requested.alternative, {
+    units: 4, item_subtotal: 1.16, estimated_delivered: 1.18, requires_confirmation: true,
+  });
+  assert.equal(requested.quantity, 3);
+  const exact = rankSearch(payload, parseSearchOptions(['Spark', '--quantity', '4'])).results[0];
+  assert.equal(exact.quantity, 4);
+  assert.equal(exact.requested.units, 4);
+  assert.equal(exact.requested.feasible, true);
+  assert.equal(exact.alternative, null);
+});
+
+test('search exposes contradictory packaging rather than treating size or title counts as proof', () => {
+  const payload = { query: 'Spark', results: [
+    { ...baseProduct, store_id: 'fixture', product_id: 'conflict', name: '4 x Spark', presentation: '1 X 473 mL', price: 1 },
+    { ...baseProduct, store_id: 'fixture', product_id: 'unknown', name: 'Spark', presentation: '473', price: 2 },
+    { ...baseProduct, store_id: 'fixture', product_id: 'single', name: 'Spark', presentation: '473 mL', price: 10.29 },
+  ] };
+  const rows = rankSearch(payload, parseSearchOptions(['Spark', '--sort', 'price'])).results;
+  assert.deepEqual(rows.map(row => row.product_id), ['single', 'unknown', 'conflict']);
+  assert.deepEqual(rows.map(row => row.packaging), [
+    { status: 'single_indicated', title_units: null, presentation_units: 1 },
+    { status: 'unknown', title_units: null, presentation_units: null },
+    { status: 'conflicting', title_units: 4, presentation_units: 1 },
+  ]);
+  assert.equal(rows[2].requested.units, 1);
+});
+
+test('search only changes pack preference for an explicit multipack query, not a requested item count', () => {
+  const results = [
+    { ...baseProduct, store_id: 'fixture', product_id: 'single', name: 'Spark', price: 10.29 },
+    { ...baseProduct, store_id: 'fixture', product_id: 'pack', name: 'Pack 4 Spark', presentation: '4 X 473 mL', price: 41.16 },
+  ];
+  const pack = rankSearch({ query: 'Spark pack', results }, parseSearchOptions(['Spark', 'pack']));
+  assert.deepEqual(pack.results.map(row => row.product_id), ['pack', 'single']);
+  const two = rankSearch({ query: 'Spark 2 unidades', results }, parseSearchOptions(['Spark', '2', 'unidades', '--quantity', '2']));
+  assert.deepEqual(two.results.map(row => row.product_id), ['single', 'pack']);
+});
+
+test('search does not claim feasibility or suggest extra regulated or weighted listing units', () => {
+  const variants = [
+    { product_id: 'age-restricted', age_restriction: true },
+    { product_id: 'prescription', requires_prescription: true },
+    { product_id: 'weighted', sale_type: 'P' },
+    { product_id: 'unknown-sale-type', sale_type: null },
+  ];
+  const payload = { query: 'Spark', results: variants.map(variant => ({
+    ...baseProduct, store_id: 'fixture', name: 'Spark', price: 10.29, shipping_cost: 0, ...variant,
+  })) };
+  const one = rankSearch(payload, parseSearchOptions(['Spark'])).results;
+  assert.deepEqual(one.map(row => row.alternative), [null, null, null, null]);
+  const two = rankSearch(payload, parseSearchOptions(['Spark', '--quantity', '2'])).results;
+  assert.deepEqual(two.map(row => row.requested.feasible), [null, null, null, null]);
+});
+
+test('search keeps unknown purchasing metadata uncertain and folds store closure into availability', () => {
+  const variants = [
+    { product_id: 'unknown-minimum', minimum_order: null },
+    { product_id: 'unknown-unit-rule', minimum_units: null },
+    { product_id: 'unknown-availability', available: null },
+    { product_id: 'closed', closed: true },
+    { product_id: 'unknown-price', price: null },
+  ];
+  const payload = { query: 'Spark', results: variants.map(variant => ({
+    ...baseProduct, store_id: 'fixture', name: 'Spark', price: 10.29, shipping_cost: 0, ...variant,
+  })) };
+  const rows = rankSearch(payload, parseSearchOptions(['Spark', '--quantity', '2', '--include-unavailable'])).results;
+  const decisions = Object.fromEntries(rows.map(row => [row.product_id, row.requested.feasible]));
+  assert.deepEqual(decisions, {
+    'unknown-minimum': null, 'unknown-unit-rule': null, 'unknown-availability': null, closed: false, 'unknown-price': null,
+  });
+  assert.equal(rows.find(row => row.product_id === 'closed').available, false);
+  assert.equal(rows.find(row => row.product_id === 'unknown-price').requested.estimated_delivered, null);
+  assert.throws(() => selectCartCandidate(rows, { storeType: 'market', storeId: 'fixture', productId: 'closed' }), /not currently available/);
+  const available = rankSearch(payload, parseSearchOptions(['Spark', '--quantity', '2'])).results;
+  assert.deepEqual(available.map(row => row.product_id), ['unknown-minimum', 'unknown-unit-rule', 'unknown-price']);
+});
+
 test('cart mutation preserves existing fields and verifies readback', () => {
   const before = [{ store_type: 'market', stores: [{ id: 10, opaque: 'keep', products: [{ id: '10_old', units: 2, sale_type: 'U', comment: 'keep' }] }] }];
   const updated = buildCartMutation(before, { storeType: 'market', storeId: '10', product: { id: '10_new', sale_type: 'U' }, units: 3 });

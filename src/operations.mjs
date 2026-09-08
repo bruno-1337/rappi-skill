@@ -37,7 +37,7 @@ export function parsePositiveInteger(value, label, maximum = 10_000) {
 }
 
 export function parseSearchOptions(args) {
-  const options = { query: [], sort: 'delivered', limit: 20, quantity: 1, ean: null, available: true };
+  const options = { query: [], sort: 'delivered', limit: 10, quantity: 1, ean: null, available: true };
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index];
     if (!token.startsWith('--')) { options.query.push(token); continue; }
@@ -71,36 +71,157 @@ function relevance(row, query) {
   return (haystack.includes(phrase) ? 100 : 0) + matches * 10 + (matches === tokens.length ? 25 : 0);
 }
 
+function searchMoney(value) {
+  const number = finiteNumber(value);
+  if (number === null || number < 0) return null;
+  const cents = moneyToCents(number, 'search amount');
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+function searchCount(value, minimum = 1) {
+  const number = finiteNumber(value);
+  return Number.isSafeInteger(number) && number >= minimum ? number : null;
+}
+
+function packagingSignals(name, presentation) {
+  const title = fold(name);
+  const detail = fold(presentation).trim();
+  const titleCounts = new Set();
+  const presentationCounts = new Set();
+  const leading = title.match(/^\s*(\d+)\s*[x×]\s*\S/);
+  if (leading && searchCount(leading[1]) !== null) titleCounts.add(Number(leading[1]));
+  const countWords = /\b(\d+)\s*(?:unidades?|unds?|un|latas?|garrafas?|saches?|capsulas?)\b/g;
+  for (const [text, counts] of [[title, titleCounts], [detail, presentationCounts]]) {
+    for (const match of text.matchAll(countWords)) {
+      if (searchCount(match[1]) !== null) counts.add(Number(match[1]));
+    }
+  }
+  const packCounts = /\b(?:pack|multipack|kit|combo|fardo|caixa)\s+(?:(?:com|de)\s+)?(\d+)(?![\d.,])\b(?!\s*(?:ml|cl|l|mg|g|kg)\b)/g;
+  for (const match of title.matchAll(packCounts)) {
+    if (searchCount(match[1]) !== null) titleCounts.add(Number(match[1]));
+  }
+  const structured = detail.match(/^(\d+)\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:ml|cl|l|mg|g|kg)\.?$/);
+  if (structured && searchCount(structured[1]) !== null) presentationCounts.add(Number(structured[1]));
+  else if (/^\d+(?:[.,]\d+)?\s*(?:ml|cl|l|mg|g|kg)\.?$/.test(detail)) presentationCounts.add(1);
+  const titleUnits = titleCounts.size === 1 ? titleCounts.values().next().value : null;
+  const presentationUnits = presentationCounts.size === 1 ? presentationCounts.values().next().value : null;
+  const multipack = /\b(?:pack|multipack|kit|combo|fardo)\b/.test(title);
+  const conflicting = titleCounts.size > 1 || presentationCounts.size > 1
+    || (titleUnits !== null && presentationUnits !== null && titleUnits !== presentationUnits)
+    || (multipack && (titleUnits === 1 || presentationUnits === 1));
+  return {
+    status: conflicting ? 'conflicting'
+      : multipack || titleUnits > 1 || presentationUnits > 1 ? 'multiple_indicated'
+        : titleUnits === 1 || presentationUnits === 1 ? 'single_indicated' : 'unknown',
+    title_units: titleUnits,
+    presentation_units: presentationUnits,
+  };
+}
+
 export function rankSearch(searchPayload, options) {
-  let rows = array(searchPayload.results, 'search.results');
-  if (options.ean) rows = rows.filter(row => String(row.ean).replace(/\D/g, '') === options.ean);
-  else rows = rows.map(row => ({ ...row, relevance: relevance(row, searchPayload.query) })).filter(row => row.relevance > 0);
-  if (options.available) rows = rows.filter(row => row.available && !row.closed && row.stock !== 0);
-  const deduped = [...new Map(rows.map(row => [`${row.store_id}|${row.product_id}`, row])).values()]
-    .map(row => {
-      const itemSubtotal = Number((row.price * options.quantity).toFixed(2));
-      const estimatedDelivered = Number((itemSubtotal + row.shipping_cost).toFixed(2));
-      return {
-        ...row,
-        quantity: options.quantity,
-        item_subtotal: itemSubtotal,
-        estimated_delivered: estimatedDelivered,
-        minimum_shortfall: Number(Math.max(0, row.minimum_order - itemSubtotal).toFixed(2)),
-      };
+  const rows = array(searchPayload.results, 'search.results');
+  const quantity = options.quantity;
+  const query = fold(searchPayload.query);
+  const wantsMultipack = /\b(?:pack|multipack|kit|combo|fardo)\b/.test(query)
+    || /\b(?:caixa|pacote)\s+(?:com|de)\s+([2-9]|\d{2,})\s+(?:unidades?|latas?|garrafas?)\b/.test(query);
+  const compatibility = wantsMultipack
+    ? { multiple_indicated: 0, unknown: 1, single_indicated: 2, conflicting: 3 }
+    : { single_indicated: 0, unknown: 1, multiple_indicated: 2, conflicting: 3 };
+  const deduped = new Map();
+  const subtotal = (price, units) => price !== null && Number.isSafeInteger(price * units) ? price * units : null;
+  const delivered = (cents, shipping) => cents !== null && shipping !== null && Number.isSafeInteger(cents + shipping) ? cents + shipping : null;
+  const money = cents => cents === null ? null : cents / 100;
+  for (const row of rows) {
+    if (options.ean && String(row.ean).replace(/\D/g, '') !== options.ean) continue;
+    const score = options.ean ? 0 : relevance(row, searchPayload.query);
+    if (!options.ean && score <= 0) continue;
+    const stock = searchCount(row.stock, 0);
+    const available = row.available === false || row.closed === true || stock === 0 ? false
+      : row.available === true && row.closed === false ? true : null;
+    if (options.available && available !== true) continue;
+    const price = searchMoney(row.price);
+    const shipping = searchMoney(row.shipping_cost);
+    const minimumOrder = searchMoney(row.minimum_order);
+    const minimumUnits = searchCount(row.minimum_units);
+    const ageRestriction = typeof row.age_restriction === 'boolean' ? row.age_restriction : null;
+    const prescription = typeof row.requires_prescription === 'boolean' ? row.requires_prescription : null;
+    const knownRules = row.sale_type === 'U' && minimumUnits !== null
+      && ageRestriction === false && prescription === false;
+    const requestedSubtotal = subtotal(price, quantity);
+    const requestedDelivered = delivered(requestedSubtotal, shipping);
+    const shortfall = requestedSubtotal !== null && minimumOrder !== null ? Math.max(0, minimumOrder - requestedSubtotal) : null;
+    const feasible = available === false || (stock !== null && stock < quantity)
+      || (minimumUnits !== null && minimumUnits > quantity) || shortfall > 0 ? false
+      : available === true && stock !== null && knownRules && shortfall === 0 ? true : null;
+    let alternative = null;
+    let feasibleDelivered = feasible === true ? requestedDelivered : null;
+    if (available === true && stock !== null && knownRules && minimumOrder !== null && price !== null) {
+      const minimumForPrice = minimumOrder === 0 ? 1 : price > 0 ? Math.ceil(minimumOrder / price) : null;
+      if (minimumForPrice !== null) {
+        const units = Math.max(quantity, minimumUnits, minimumForPrice);
+        const itemSubtotal = subtotal(price, units);
+        if (units > quantity && units <= 100 && units <= stock && itemSubtotal !== null && itemSubtotal >= minimumOrder) {
+          feasibleDelivered = delivered(itemSubtotal, shipping);
+          alternative = {
+            units,
+            item_subtotal: money(itemSubtotal),
+            estimated_delivered: money(feasibleDelivered),
+            requires_confirmation: true,
+          };
+        }
+      }
+    }
+    const packaging = packagingSignals(row.name, row.presentation);
+    const result = {
+      store_id: row.store_id,
+      store_name: row.store_name ?? '',
+      cart_type: row.cart_type,
+      product_id: row.product_id,
+      name: row.name ?? '',
+      presentation: row.presentation ?? '',
+      ean: row.ean ?? '',
+      price: money(price),
+      shipping_cost: money(shipping),
+      minimum_order: money(minimumOrder),
+      eta: row.eta ?? null,
+      quantity,
+      stock,
+      minimum_units: minimumUnits,
+      available,
+      age_restriction: ageRestriction,
+      requires_prescription: prescription,
+      packaging,
+      requested: {
+        units: quantity,
+        item_subtotal: money(requestedSubtotal),
+        estimated_delivered: money(requestedDelivered),
+        minimum_shortfall: money(shortfall),
+        feasible,
+      },
+      alternative,
+    };
+    deduped.set(`${row.store_id}|${row.product_id}`, {
+      result, score, compatibility: compatibility[packaging.status],
+      subtotal: requestedSubtotal ?? Number.POSITIVE_INFINITY,
+      delivered: requestedDelivered ?? Number.POSITIVE_INFINITY,
+      feasibleDelivered: feasibleDelivered ?? Number.POSITIVE_INFINITY,
+      eta: finiteNumber(row.eta?.maximum_minutes) ?? Number.POSITIVE_INFINITY,
     });
-  const eta = row => row.eta?.maximum_minutes ?? Number.POSITIVE_INFINITY;
+  }
+  const ranked = [...deduped.values()];
   const comparator = options.sort === 'price'
-    ? (a, b) => a.item_subtotal - b.item_subtotal || eta(a) - eta(b)
+    ? (a, b) => a.subtotal - b.subtotal || a.eta - b.eta
     : options.sort === 'fastest'
-      ? (a, b) => eta(a) - eta(b) || a.estimated_delivered - b.estimated_delivered
-      : (a, b) => (a.minimum_shortfall > 0) - (b.minimum_shortfall > 0) || a.estimated_delivered - b.estimated_delivered || eta(a) - eta(b);
-  deduped.sort((a, b) => (b.relevance ?? 0) - (a.relevance ?? 0) || comparator(a, b));
+      ? (a, b) => a.eta - b.eta || a.delivered - b.delivered
+      : (a, b) => a.feasibleDelivered - b.feasibleDelivered || a.delivered - b.delivered || a.eta - b.eta;
+  ranked.sort((a, b) => a.compatibility - b.compatibility || b.score - a.score || comparator(a, b));
   return {
     query: searchPayload.query,
     sort: options.sort,
-    quantity: options.quantity,
-    result_count: deduped.length,
-    results: deduped.slice(0, options.limit),
+    quantity,
+    estimates_scope: 'isolated_basket',
+    result_count: ranked.length,
+    results: ranked.slice(0, options.limit).map(row => row.result),
   };
 }
 

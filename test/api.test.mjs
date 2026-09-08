@@ -300,3 +300,20 @@ test('identifier validation rejects rounded numeric identifiers while preserving
   assert.equal(calls.length, 1);
   assert.equal(new URL(calls[0]).searchParams.get('store_id'), '9007199254740993');
 });
+
+test('search does not invent free delivery, zero minimum or zero stock when metadata is missing', async () => {
+  const client = new RappiClient(headers, {
+    baseUrl: 'http://127.0.0.1:12345/',
+    fetchImpl: async url => url.pathname.endsWith('/addresses')
+      ? response([{ id: 7, active: true, lat: 0, lng: 0 }])
+      : response({ stores: [{
+        store_id: 10, products: [{ id: '10_a', name: 'Fixture product', stock: null }],
+      }] }),
+  });
+  const { results: [product] } = await client.search('Fixture product');
+  assert.equal(product.price, null);
+  assert.equal(product.real_price, null);
+  assert.equal(product.shipping_cost, null);
+  assert.equal(product.minimum_order, null);
+  assert.equal(product.stock, null);
+});

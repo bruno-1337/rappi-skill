@@ -12,6 +12,8 @@ auth login
 auth clear
 ```
 
+Run `doctor` when diagnosing local setup. It returns structured runtime/platform, Playwright/Chromium executable, credential-helper executable, session-file presence, local-readiness, and next-step information. It does not launch Chromium or credential helpers, query keyrings, read credentials, decrypt sessions, or contact Rappi. Paths and secrets are not diagnostic output. File presence is not authentication; local readiness is not remote readiness. `auth status` is the separate authentication check.
+
 `auth login` is the complete bootstrap flow. It opens a dedicated persistent Chromium profile on official `https://www.rappi.com.br/`, waits up to ten minutes for the user to finish authentication, requires a successful 2xx response from the official authenticated user endpoint, protects only the required request headers with the OS credential store, and closes Chromium. It prints `RAPPI_AUTH_READY` only after the protected session is written.
 
 State outside the repo:
@@ -47,9 +49,13 @@ search <query...> --sort price|fastest|delivered --limit N --quantity N
 search <query...> --ean <EAN>
 ```
 
-The helper loads the active location internally without printing coordinates. It removes unrelated broad-search suggestions, deduplicates store/product pairs, excludes unavailable results by default, parses immediate ETA ranges, calculates item subtotal, estimated delivered cost, and minimum-order shortfall, then ranks deterministically.
+The helper loads the active location internally without printing coordinates. It removes unrelated broad-search suggestions, deduplicates store/product pairs, excludes unavailable results by default, parses immediate ETA ranges, and ranks deterministically. Compact output defaults to 10 results; narrow the query before raising the limit. This is bounded discovery, not proof of availability or absence across every store.
 
-`estimated_delivered` includes the search response's delivery estimate only. Checkout recalculation remains authoritative for discounts, service fees, mandatory charges, tip, and final timing.
+Ranking first considers packaging compatibility and query relevance. Within comparable results, `price` compares the requested subtotal, `fastest` compares ETA, and `delivered` compares the least known viable isolated basket (the requested quantity when feasible, otherwise its confirmation-required alternative). Unknown or unachievable baskets follow priced viable estimates. Requested units never change just because an alternative affects ranking.
+
+Use the [comparison reference](comparison.md#search-decision-schema) for the exact compact result schema. `quantity` and `requested.units` count listing units. `packaging` contains title/presentation signals, never proof of physical contents; conflicting counts require clarification. `requested` estimates the isolated requested quantity, without credit for existing cart items. Product `minimum_units` and store `requested.minimum_shortfall` are separate constraints. Unknown feasibility is null.
+
+`alternative` is an optional, confirmation-required larger listing quantity backed by known quantity rules and stock, never a silent cart choice or regulated/weighted-goods suggestion. Do not promote larger packs solely because they meet a minimum. `requested.estimated_delivered` and `alternative.estimated_delivered` include only the search delivery estimate beyond item subtotal. Checkout recalculation determines discounts, service fees, mandatory charges, tip, and final timing.
 
 ## Addresses
 
@@ -78,7 +84,7 @@ cart remove --store-type <cart_type> --store-id <id> --product-id <id>
 
 `cart add` performs a fresh search and accepts only an exact currently available store/product pair. Use `cart_type` returned by search. It rejects regulated and prescription products and quantities below product minimums.
 
-Do not mutate the cart until the requested product resolves to one exact SKU. When multiple flavors, sizes, formulations, or other variants remain plausible, present the choices and ask the user to select one. A quantity-only follow-up after listing alternatives does not disambiguate the product.
+Do not mutate the cart until the requested product resolves to one exact SKU and listing quantity. When multiple flavors, sizes, formulations, or other variants remain plausible, ask one useful combined variant-and-quantity question. A quantity-only follow-up after listing alternatives does not disambiguate the product. A title's pack count does not establish how many physical units the listing contains.
 
 Mutation sequence:
 
@@ -145,7 +151,11 @@ order --store-type <cart_type> --approval-id <approval-id>
 
 `checkout approve` recalculates checkout and writes a ten-minute OS-protected approval record. The returned short hash is for the user's confirmation prompt; never show the full hash.
 
-After explicit confirmation, `order`:
+The agent's transaction is: understand → search → compare → resolve choices → mutate → review → approve → explicit confirmation in a new user response → submit once → reconcile. Show the full material review (every store, item, quantity, charge, final total, address label, delivery window, and masked payment) from the approval snapshot, together with its short hash and expiry, then ask for a new response. Earlier or general shopping consent is insufficient.
+
+The CLI binds and consumes a technical approval record; it cannot verify conversational consent or whether pre-existing items were requested. Exact-variant selection, whole-cart authorization, and the new-response gate remain the agent's responsibility. Do not imply that obtaining an approval ID proves user authorization.
+
+Only after that new explicit confirmation, `order`:
 
 1. recalculates all checkout state;
 2. claims and consumes the approval with an atomic filesystem lock before any order request;
@@ -157,6 +167,8 @@ After explicit confirmation, `order`:
 7. reports `confirmed` only when every returned ID maps exactly once to an approved store and amount. `created_unverified` means returned IDs are listed but financial verification is incomplete. Without returned IDs, newly observed orders are only candidates, never an inferred confirmation.
 
 Concurrent order attempts cannot reuse an approval. A mismatch, expiry, crash, failed verification, or reconciliation read failure consumes it and requires investigation; never replay a checkout that may have been accepted.
+
+If a material field changes, investigate the reported difference, review the new snapshot, and obtain a fresh confirmation. New approval is appropriate only when there is no possibly accepted checkout to replay; use the reconciliation gate below for any uncertain submission.
 
 ## Ambiguous outcome
 

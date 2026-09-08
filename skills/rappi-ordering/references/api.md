@@ -8,6 +8,8 @@ https://services.rappi.com.br
 
 The local CLI is the only supported caller. It protects the minimum authenticated request headers with Windows DPAPI or AES-256-GCM backed by macOS Keychain or Linux Secret Service, decrypts them only in command memory, fixes the service origin, and exposes operation-specific commands rather than an arbitrary API proxy.
 
+`doctor` is the local-only exception: it reports setup diagnostics without contacting this API, reading credentials, or decrypting a session. Session-file presence and local setup readiness do not establish authentication.
+
 ## Request headers and session
 
 Authenticated calls normally include:
@@ -56,7 +58,7 @@ POST /api/pns-global-search-api/v1/unified-search?is_prime=false
 }
 ```
 
-Relevant response fields:
+Relevant **upstream** response fields (not the CLI output contract):
 
 ```text
 stores[]
@@ -77,7 +79,24 @@ stores[]
     age_restriction, requires_medical_prescription
 ```
 
-Use `price` as the current displayed unit price and retain `real_price` as the reference/list price. Promotions with minimum units must be evaluated at the requested quantity.
+Upstream `price` is the displayed listing-unit price; `real_price` is a reference/list price when supplied. Promotions with minimum units apply only when their conditions are proven for the requested listing quantity. These raw fields describe API evidence, not permission to call unsupported endpoints or bypass the helper.
+
+### CLI search output
+
+`search` defaults to compact results with a limit of 10. `--quantity N` requests listing units; it does not convert a title into a count of physical cans, bottles, or packs. Output remains structured JSON, with one compact JSON row per result; there is no detail-output flag. The exact result fields and nested types are documented in [comparison.md](comparison.md#search-decision-schema):
+
+```text
+store_id, store_name, cart_type, product_id, name, presentation, ean,
+price, shipping_cost, minimum_order, eta, quantity, stock, minimum_units,
+available, age_restriction, requires_prescription,
+packaging: {status, title_units, presentation_units},
+requested: {units, item_subtotal, estimated_delivered, minimum_shortfall, feasible},
+alternative: null | {units, item_subtotal, estimated_delivered, requires_confirmation: true}
+```
+
+Use `cart_type`, not raw retailer `store_type`, in commands. Unknown price, shipping cost, minimum order, and stock remain null rather than becoming zero. Estimates live under `requested` and `alternative`, not as top-level result cost fields. They evaluate an isolated listing basket without existing cart contents. `feasible: null` means unknown; true is not a final checkout guarantee.
+
+Packaging counts are title/presentation signals, not verified contents. Conflicting signals require clarification. A non-null alternative only proposes a quantity supported by known rules and stock; it requires user confirmation and does not authorize automatic mutation. It is not offered for regulated or weighted goods.
 
 ### Suggestions and history
 

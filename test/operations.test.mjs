@@ -281,6 +281,15 @@ test('saved-card selection uses exact alias and keeps secrets out of summaries',
   assert.equal(selected.selection.payment_method_label, 'primary-card — VISA •••• 7890');
   assert.deepEqual(selected.payload.rappi_credit, { use_rappi_credit: true });
   assert.deepEqual(selected.payload.rappi_pay, { use_rappi_pay: false, rappi_pay_method_active: false });
+  const withoutOptionalBalances = structuredClone(currentPaymentContext);
+  delete withoutOptionalBalances.cartPayload[0].payment_method.rappi_credit;
+  delete withoutOptionalBalances.cartPayload[0].payment_method.rappi_pay;
+  const selectedWithoutBalances = buildPaymentSelection(response, 'primary-card', withoutOptionalBalances);
+  assert.deepEqual(selectedWithoutBalances.payload.rappi_credit, { use_rappi_credit: false });
+  assert.deepEqual(selectedWithoutBalances.payload.rappi_pay, {
+    use_rappi_pay: false,
+    rappi_pay_method_active: false,
+  });
   const unavailable = structuredClone(response);
   unavailable.payment_methods[0].available = false;
   assert.throws(() => buildPaymentSelection(unavailable, 'primary-card', currentPaymentContext), /not currently available/);
